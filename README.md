@@ -130,14 +130,6 @@ After setup completes, create a profile in the SlipNet app with these settings:
 
 The NaiveProxy connection carries your SSH tunnel through an HTTPS connection that looks like normal web traffic to network observers. SSH Host defaults to the server domain automatically.
 
-### SNI Hostname (leave empty)
-
-The "SNI Hostname" field in the app is for **domain fronting** through a CDN (e.g. Cloudflare) — it replaces the domain in the TLS ClientHello so the censor sees a connection to an innocuous site instead of your server.
-
-**For this setup (direct Caddy, no CDN), leave it empty.** Your Caddy server only has a TLS certificate for your domain. If you set SNI to another domain (e.g. `google.com`), the TLS handshake will fail because the certificate doesn't match.
-
-NaiveProxy's traffic already looks like normal Chrome HTTPS browsing thanks to its Chromium network stack — SNI spoofing is not needed for censorship resistance with a direct connection.
-
 ## File Locations
 
 | Path | Description |
