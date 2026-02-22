@@ -1,4 +1,4 @@
-# SlipNet Server Setup — NaiveProxy + SSH
+# SlipGate — NaiveProxy + SSH Server Setup
 
 Interactive setup script that configures a server for use with the SlipNet Android VPN app. Builds Caddy with [klzgrad's forwardproxy](https://github.com/klzgrad/forwardproxy) plugin (NaiveProxy), configures automatic TLS via Let's Encrypt, and serves a decoy website to resist probe detection.
 
@@ -14,15 +14,15 @@ Interactive setup script that configures a server for use with the SlipNet Andro
 **Option 1 — Clone and run:**
 
 ```bash
-git clone https://github.com/anonvector/slipnet-server-setup.git
-cd slipnet-server-setup
+git clone https://github.com/anonvector/slipgate.git
+cd slipgate
 sudo bash setup.sh
 ```
 
 **Option 2 — One-liner:**
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/anonvector/slipnet-server-setup/main/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/anonvector/slipgate/main/setup.sh)
 ```
 
 ## Menu
