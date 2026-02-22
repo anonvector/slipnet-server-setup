@@ -5,6 +5,7 @@ set -euo pipefail
 #  SlipNet Server Setup — NaiveProxy + SSH
 # ══════════════════════════════════════════
 
+clear
 STEP=""
 cleanup() {
     local exit_code=$?
