@@ -14,7 +14,7 @@ Interactive setup script that configures a server for use with the SlipNet Andro
 **Option 1 — Clone and run:**
 
 ```bash
-git clone https://github.com/user/slipnet-server-setup.git
+git clone https://github.com/anonvector/slipnet-server-setup.git
 cd slipnet-server-setup
 sudo bash setup.sh
 ```
