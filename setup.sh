@@ -26,6 +26,24 @@ generate_password() {
     head -c 256 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c "${length}"
 }
 
+random_decoy() {
+    local sites=(
+        "https://www.wikipedia.org"
+        "https://www.reuters.com"
+        "https://www.bbc.com"
+        "https://www.medium.com"
+        "https://www.theguardian.com"
+        "https://www.npmjs.com"
+        "https://www.python.org"
+        "https://www.rust-lang.org"
+        "https://www.docker.com"
+        "https://www.mozilla.org"
+        "https://www.archive.org"
+        "https://www.w3.org"
+    )
+    echo "${sites[$((RANDOM % ${#sites[@]}))]}"
+}
+
 check_root() {
     if [[ "${EUID}" -ne 0 ]]; then
         echo "Error: This script must be run as root."
@@ -279,7 +297,7 @@ do_install() {
     read -rp "Create SSH tunnel access for this user? [y/N]: " CREATE_SSH
     CREATE_SSH="${CREATE_SSH:-n}"
 
-    DEFAULT_DECOY="https://www.wikipedia.org"
+    DEFAULT_DECOY="$(random_decoy)"
     read -rp "Decoy website URL [${DEFAULT_DECOY}]: " DECOY_URL
     DECOY_URL="${DECOY_URL:-${DEFAULT_DECOY}}"
 
@@ -429,7 +447,6 @@ do_reconfigure() {
     echo "  Decoy:  ${current_decoy}"
     echo ""
     echo "Press Enter to keep current value."
-    echo "(Use option 5 to manage proxy+SSH users.)"
     echo ""
 
     read -rp "Domain name [${current_domain}]: " DOMAIN
