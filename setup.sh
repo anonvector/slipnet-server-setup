@@ -212,25 +212,37 @@ show_menu() {
         fi
 
         echo ""
-        echo "  1) Install         Set up NaiveProxy server"
-        echo "  2) Reconfigure     Change domain/email/decoy"
-        echo "  3) Show config     Print current configuration"
-        echo "  4) Uninstall       Remove everything"
-        echo "  5) Manage users    Add/delete/list proxy+SSH users"
-        echo "  0) Exit"
-        echo ""
-        read -rp "  Choose [0-5]: " choice
-        echo ""
+        if is_installed; then
+            echo "  1) Reconfigure     Change domain/email/decoy"
+            echo "  2) Show config     Print current configuration"
+            echo "  3) Manage users    Add/delete/list proxy+SSH users"
+            echo "  4) Uninstall       Remove everything"
+            echo "  0) Exit"
+            echo ""
+            read -rp "  Choose [0-4]: " choice
+            echo ""
 
-        case "${choice}" in
-            1) do_install ;;
-            2) do_reconfigure ;;
-            3) do_show_config ;;
-            4) do_uninstall ;;
-            5) do_manage_users ;;
-            0) exit 0 ;;
-            *) echo "Invalid choice." ;;
-        esac
+            case "${choice}" in
+                1) do_reconfigure ;;
+                2) do_show_config ;;
+                3) do_manage_users ;;
+                4) do_uninstall ;;
+                0) exit 0 ;;
+                *) echo "Invalid choice." ;;
+            esac
+        else
+            echo "  1) Install         Set up NaiveProxy server"
+            echo "  0) Exit"
+            echo ""
+            read -rp "  Choose [0-1]: " choice
+            echo ""
+
+            case "${choice}" in
+                1) do_install ;;
+                0) exit 0 ;;
+                *) echo "Invalid choice." ;;
+            esac
+        fi
     done
 }
 
