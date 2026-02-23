@@ -547,8 +547,6 @@ do_show_config() {
     echo "   Tunnel Type:  NaiveProxy + SSH"
     echo "   Server:       ${domain}"
     echo "   Server Port:  443"
-    echo "   SSH Host:     127.0.0.1"
-    echo "   SSH Port:     22"
     echo "══════════════════════════════════════════"
     echo ""
 }
@@ -931,8 +929,6 @@ print_summary() {
     echo " Proxy Username: ${PROXY_USER}"
     echo " Proxy Password: ${PROXY_PASS}"
     if [[ "${CREATE_SSH}" == [yY] ]]; then
-        echo " SSH Host:       127.0.0.1"
-        echo " SSH Port:       22"
         echo " SSH Username:   ${PROXY_USER}"
     fi
     echo "══════════════════════════════════════════"
