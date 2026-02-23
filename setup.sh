@@ -921,29 +921,21 @@ print_summary() {
     echo "══════════════════════════════════════════"
     echo " SlipNet Server Setup Complete"
     echo "══════════════════════════════════════════"
-    echo " Domain:         ${DOMAIN}"
+    if [[ "${CREATE_SSH}" == [yY] ]]; then
+        echo " Tunnel Type:    NaiveProxy + SSH"
+    else
+        echo " Tunnel Type:    NaiveProxy"
+    fi
+    echo " Server:         ${DOMAIN}"
+    echo " Server Port:    443"
     echo " Proxy Username: ${PROXY_USER}"
     echo " Proxy Password: ${PROXY_PASS}"
-    echo " Proxy Port:     443"
-    echo "──────────────────────────────────────────"
-    echo " SlipNet App Profile Settings:"
     if [[ "${CREATE_SSH}" == [yY] ]]; then
-        echo "   Tunnel Type:    NaiveProxy + SSH"
-    else
-        echo "   Tunnel Type:    NaiveProxy"
-    fi
-    echo "   Server:         ${DOMAIN}"
-    echo "   Server Port:    443"
-    echo "   Proxy Username: ${PROXY_USER}"
-    echo "   Proxy Password: ${PROXY_PASS}"
-    if [[ "${CREATE_SSH}" == [yY] ]]; then
-        echo "   SSH Host:       127.0.0.1"
-        echo "   SSH Port:       22"
-        echo "   SSH Username:   ${PROXY_USER}"
+        echo " SSH Host:       127.0.0.1"
+        echo " SSH Port:       22"
+        echo " SSH Username:   ${PROXY_USER}"
     fi
     echo "══════════════════════════════════════════"
-    echo ""
-    echo " Manage users with option 5 from the main menu."
     echo ""
 }
 
