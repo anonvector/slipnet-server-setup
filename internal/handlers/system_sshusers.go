@@ -36,47 +36,37 @@ func handleSystemUsers(ctx *actions.Context) error {
 			return nil
 		}
 
+		// Show user list
+		out.Print("")
 		for _, u := range cfg.Users {
-			out.Print(fmt.Sprintf("  User: %s", u.Username))
-			out.Print(fmt.Sprintf("  Password: %s", u.Password))
+			out.Print(fmt.Sprintf("  %s", u.Username))
+		}
+		out.Print("")
 
-			if len(cfg.Tunnels) == 0 {
-				out.Print("  No tunnels configured")
-			} else {
-				out.Print("")
-				for _, t := range cfg.Tunnels {
-					backend := cfg.GetBackend(t.Backend)
-					if backend == nil {
-						continue
-					}
+		// Let user pick one to see configs
+		userOpts := make([]actions.SelectOption, 0, len(cfg.Users))
+		for _, u := range cfg.Users {
+			userOpts = append(userOpts, actions.SelectOption{Value: u.Username, Label: u.Username})
+		}
+		selectedUser, err := prompt.Select("Show configs for user", userOpts)
+		if err != nil {
+			return err
+		}
 
-					// For DNSTT, generate both dnstt and noizdns URIs
-					modes := []string{""}
-					if t.Transport == config.TransportDNSTT {
-						modes = []string{clientcfg.ClientModeDNSTT, clientcfg.ClientModeNoizDNS}
-					}
+		user := cfg.GetUser(selectedUser)
+		if user == nil {
+			return actions.NewError(actions.SystemUsers, "user not found", nil)
+		}
 
-					for _, mode := range modes {
-						opts := clientcfg.URIOptions{
-							ClientMode: mode,
-							Username:   u.Username,
-							Password:   u.Password,
-						}
-						uri, err := clientcfg.GenerateURI(&t, backend, cfg, opts)
-						if err != nil {
-							continue
-						}
-						label := t.Tag
-						if mode != "" {
-							label += " (" + mode + ")"
-						}
-						out.Print(fmt.Sprintf("  [%s]", label))
-						out.Print(fmt.Sprintf("  %s", uri))
-						out.Print("")
-					}
-				}
-			}
-			out.Print("  ────────────────────────────────────")
+		out.Print("")
+		out.Print(fmt.Sprintf("  User: %s", user.Username))
+		out.Print(fmt.Sprintf("  Password: %s", user.Password))
+		out.Print("")
+
+		if len(cfg.Tunnels) == 0 {
+			out.Print("  No tunnels configured")
+		} else {
+			showUserConfigs(cfg, user.Username, user.Password, out)
 		}
 
 	case "add":
