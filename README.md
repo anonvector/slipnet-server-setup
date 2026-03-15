@@ -137,10 +137,36 @@ If any required flag is omitted, slipgate falls back to an interactive prompt fo
 | **Slipstream** | QUIC DNS | 53/udp | QUIC-based tunnel with certificate authentication |
 | **NaiveProxy** | HTTPS | 443/tcp | Caddy with forwardproxy plugin. Auto-TLS via Let's Encrypt. Probe-resistant with decoy site |
 
+### Domain Layout
+
+Each DNS tunnel instance requires its own subdomain. When using both SOCKS and SSH backends, the install auto-generates subdomains by appending `s` to the SSH variant:
+
+| Tunnel | Domain | Backend |
+|--------|--------|---------|
+| dnstt-socks | `t.example.com` | SOCKS5 (microsocks) |
+| dnstt-ssh | `ts.example.com` | SSH |
+| slipstream-socks | `s.example.com` | SOCKS5 |
+| slipstream-ssh | `ss.example.com` | SSH |
+| naive-socks | `example.com` | SOCKS5 (shared domain) |
+| naive-ssh | `example.com` | SSH (shared domain) |
+
+NaiveProxy tunnels share a domain since they use HTTPS (port 443), not DNS. DNSTT and NoizDNS also share a domain — the same server handles both client types.
+
+**Required DNS records** (for the example above):
+
+```
+A   ns.example.com       → <server IP>
+NS  t.example.com        → ns.example.com
+NS  ts.example.com       → ns.example.com
+NS  s.example.com        → ns.example.com
+NS  ss.example.com       → ns.example.com
+A   example.com           → <server IP>
+```
+
 ### Routing Modes
 
 - **Single mode**: One active tunnel listens directly on port 53
-- **Multi mode**: DNS router on port 53 dispatches queries by domain to different tunnels running on local ports
+- **Multi mode**: DNS router on port 53 dispatches queries by domain to different tunnels running on local ports. Auto-enabled when multiple DNS tunnels are created.
 
 ## Client Configuration
 
