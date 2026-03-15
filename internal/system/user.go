@@ -63,6 +63,13 @@ func AddSSHUser(username, password string) error {
 		return fmt.Errorf("user %q already exists", username)
 	}
 
+	// Ensure SSH group exists
+	if !groupExists(config.SSHGroup) {
+		if err := run("groupadd", "--system", config.SSHGroup); err != nil {
+			return fmt.Errorf("create group %s: %w", config.SSHGroup, err)
+		}
+	}
+
 	if err := run("useradd", "--system", "--no-create-home",
 		"--shell", "/bin/false",
 		"--gid", config.SSHGroup,
