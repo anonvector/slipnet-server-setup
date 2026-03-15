@@ -10,10 +10,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/anonvector/slipgate/internal/config"
 	"github.com/anonvector/slipgate/internal/version"
 )
+
+var httpClient = &http.Client{Timeout: 120 * time.Second}
 
 const (
 	releaseBaseURL = "https://github.com/anonvector/slipgate/releases"
@@ -50,7 +53,7 @@ func EnsureInstalled(name string) error {
 // CheckUpdate checks GitHub releases for a newer version.
 func CheckUpdate() (newVersion string, downloadURL string, err error) {
 	apiURL := "https://api.github.com/repos/anonvector/slipgate/releases/latest"
-	resp, err := http.Get(apiURL)
+	resp, err := httpClient.Get(apiURL)
 	if err != nil {
 		return "", "", err
 	}
@@ -136,7 +139,7 @@ func downloadTo(url, dest string, mode os.FileMode) error {
 }
 
 func downloadToWriter(url string, w io.Writer) error {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return err
 	}
