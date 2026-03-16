@@ -37,6 +37,28 @@ make build
 sudo ./slipgate install
 ```
 
+**Offline install (SCP to server):**
+
+Download the binaries you need from the [latest release](https://github.com/anonvector/slipgate/releases):
+
+```bash
+# On your local machine — download binaries
+mkdir slipgate-bundle && cd slipgate-bundle
+curl -LO https://github.com/anonvector/slipgate/releases/download/v1.0.0/slipgate-linux-amd64
+curl -LO https://github.com/anonvector/slipgate/releases/download/v1.0.0/dnstt-server-linux-amd64
+curl -LO https://github.com/anonvector/slipgate/releases/download/v1.0.0/slipstream-server-linux-amd64
+curl -LO https://github.com/anonvector/slipgate/releases/download/v1.0.0/caddy-naive-linux-amd64
+curl -LO https://github.com/anonvector/slipgate/releases/download/v1.0.0/microsocks-linux-amd64
+
+# SCP to server
+scp * user@server:/tmp/slipgate/
+
+# On the server
+chmod +x /tmp/slipgate/*
+sudo cp /tmp/slipgate/slipgate-linux-amd64 /usr/local/bin/slipgate
+sudo slipgate install --bin-dir /tmp/slipgate
+```
+
 Then launch the interactive menu:
 
 ```bash

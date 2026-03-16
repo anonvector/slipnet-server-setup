@@ -27,6 +27,12 @@ func handleSystemInstall(ctx *actions.Context) error {
 		return actions.NewError(actions.SystemInstall, "slipgate only supports Linux servers", nil)
 	}
 
+	// Offline mode: use local binaries instead of downloading
+	if binDir := ctx.GetArg("bin-dir"); binDir != "" {
+		binary.OfflineDir = binDir
+		out.Info(fmt.Sprintf("Offline mode: using binaries from %s", binDir))
+	}
+
 	// ── Step 1: Select transports ──────────────────────────────────
 	out.Print("")
 	out.Print("  Which transports do you want to install?")
@@ -51,8 +57,12 @@ func handleSystemInstall(ctx *actions.Context) error {
 		}
 	}
 
-	// ── Step 3: Download binaries ──────────────────────────────────
-	out.Info("Downloading binaries...")
+	// ── Step 3: Install binaries ───────────────────────────────────
+	if binary.OfflineDir != "" {
+		out.Info("Installing binaries from local directory...")
+	} else {
+		out.Info("Downloading binaries...")
+	}
 	needsSOCKS := false
 	for _, t := range transports {
 		bin, ok := config.TransportBinaries[t]

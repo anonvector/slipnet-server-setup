@@ -23,6 +23,10 @@ const (
 	binaryBaseURL  = "https://github.com/anonvector/slipgate/releases/latest/download"
 )
 
+// OfflineDir, when set, makes EnsureInstalled copy binaries from this
+// directory instead of downloading. Used for SCP/offline installs.
+var OfflineDir string
+
 // Binary download URLs — all hosted on slipgate releases.
 var binaryURLs = map[string]string{
 	"dnstt-server":      binaryBaseURL + "/dnstt-server-%s-%s",
@@ -31,13 +35,20 @@ var binaryURLs = map[string]string{
 	"caddy-naive":       binaryBaseURL + "/caddy-naive-%s-%s",
 }
 
-// EnsureInstalled checks if a binary exists, downloads if not.
+// EnsureInstalled checks if a binary exists. If not, copies from OfflineDir
+// (if set) or downloads from GitHub releases.
 func EnsureInstalled(name string) error {
 	binPath := filepath.Join(config.DefaultBinDir, name)
 	if _, err := os.Stat(binPath); err == nil {
 		return nil // already exists
 	}
 
+	// Offline mode: copy from local directory
+	if OfflineDir != "" {
+		return installFromOffline(name, binPath)
+	}
+
+	// Online mode: download from releases
 	urlTemplate, ok := binaryURLs[name]
 	if !ok {
 		return fmt.Errorf("unknown binary: %s", name)
@@ -48,6 +59,35 @@ func EnsureInstalled(name string) error {
 		return fmt.Errorf("download %s from %s: %w", name, url, err)
 	}
 	return nil
+}
+
+// installFromOffline copies a binary from the offline directory.
+// Looks for: name-os-arch, name-arch, or just name.
+func installFromOffline(name, destPath string) error {
+	candidates := []string{
+		fmt.Sprintf("%s-%s-%s", name, runtime.GOOS, runtime.GOARCH),
+		fmt.Sprintf("%s-%s", name, runtime.GOARCH),
+		name,
+	}
+
+	for _, candidate := range candidates {
+		src := filepath.Join(OfflineDir, candidate)
+		if _, err := os.Stat(src); err == nil {
+			data, err := os.ReadFile(src)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", src, err)
+			}
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(destPath, data, 0755); err != nil {
+				return fmt.Errorf("write %s: %w", destPath, err)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("binary %s not found in %s (tried: %s)", name, OfflineDir, strings.Join(candidates, ", "))
 }
 
 // CheckUpdate checks GitHub releases for a newer version.

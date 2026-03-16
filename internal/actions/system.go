@@ -5,6 +5,9 @@ func init() {
 		ID:       SystemInstall,
 		Name:     "Install",
 		Category: "system",
+		Inputs: []InputField{
+			{Key: "bin-dir", Label: "Offline binary directory"},
+		},
 	})
 
 	Register(&Action{
