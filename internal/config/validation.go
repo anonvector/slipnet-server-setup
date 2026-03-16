@@ -24,13 +24,15 @@ func (c *Config) Validate() error {
 		}
 		tags[t.Tag] = true
 
-		if t.Domain == "" {
+		if t.Domain == "" && t.Transport != TransportSSH && t.Transport != TransportSOCKS {
 			return fmt.Errorf("tunnel %q: domain is required", t.Tag)
 		}
-		if domains[t.Domain] {
-			return fmt.Errorf("duplicate domain: %s", t.Domain)
+		if t.Domain != "" {
+			if domains[t.Domain] {
+				return fmt.Errorf("duplicate domain: %s", t.Domain)
+			}
+			domains[t.Domain] = true
 		}
-		domains[t.Domain] = true
 
 		if err := validateTransport(t.Transport); err != nil {
 			return fmt.Errorf("tunnel %q: %w", t.Tag, err)
@@ -60,12 +62,12 @@ func (c *Config) ValidateNewTunnel(t *TunnelConfig) error {
 	if c.GetTunnel(t.Tag) != nil {
 		return fmt.Errorf("tunnel tag %q already exists", t.Tag)
 	}
-	if t.Domain == "" {
+	if t.Domain == "" && t.Transport != TransportSSH && t.Transport != TransportSOCKS {
 		return fmt.Errorf("domain is required")
 	}
 	c.mu.RLock()
 	for _, existing := range c.Tunnels {
-		if existing.Domain == t.Domain && existing.Backend == t.Backend {
+		if t.Domain != "" && existing.Domain == t.Domain && existing.Backend == t.Backend {
 			c.mu.RUnlock()
 			return fmt.Errorf("domain %q with backend %q already in use by tunnel %q", t.Domain, t.Backend, existing.Tag)
 		}
@@ -86,7 +88,7 @@ func validateTag(tag string) error {
 
 func validateTransport(transport string) error {
 	switch transport {
-	case TransportDNSTT, TransportSlipstream, TransportNaive:
+	case TransportDNSTT, TransportSlipstream, TransportNaive, TransportSSH, TransportSOCKS:
 		return nil
 	}
 	return fmt.Errorf("unknown transport: %s", transport)

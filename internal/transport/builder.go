@@ -16,6 +16,9 @@ func CreateService(tunnel *config.TunnelConfig, cfg *config.Config) error {
 		return createSlipstreamService(tunnel, cfg)
 	case config.TransportNaive:
 		return createNaiveService(tunnel, cfg)
+	case config.TransportSSH, config.TransportSOCKS:
+		// Direct transports use existing system services (sshd, microsocks)
+		return nil
 	default:
 		return fmt.Errorf("unknown transport: %s", tunnel.Transport)
 	}

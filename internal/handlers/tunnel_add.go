@@ -31,6 +31,15 @@ func handleTunnelAdd(ctx *actions.Context) error {
 			return err
 		}
 	}
+	// Direct transports have an implicit backend
+	isDirect := transport_ == config.TransportSSH || transport_ == config.TransportSOCKS
+	if isDirect {
+		if transport_ == config.TransportSSH {
+			backend = config.BackendSSH
+		} else {
+			backend = config.BackendSOCKS
+		}
+	}
 	if backend == "" {
 		var err error
 		backend, err = prompt.Select("Backend", actions.BackendOptions)
@@ -45,7 +54,7 @@ func handleTunnelAdd(ctx *actions.Context) error {
 			return err
 		}
 	}
-	if domain == "" {
+	if !isDirect && domain == "" {
 		var err error
 		domain, err = prompt.String("Domain", "")
 		if err != nil {

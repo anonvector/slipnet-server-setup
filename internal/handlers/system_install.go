@@ -65,7 +65,14 @@ func handleSystemInstall(ctx *actions.Context) error {
 		}
 		out.Success(fmt.Sprintf("  %s (%s/%s)", bin, runtime.GOOS, runtime.GOARCH))
 
-		if t != config.TransportNaive {
+		if t != config.TransportNaive && t != config.TransportSSH && t != config.TransportSOCKS {
+			needsSOCKS = true
+		}
+	}
+
+	// Direct SOCKS5 transport also needs microsocks
+	for _, t := range transports {
+		if t == config.TransportSOCKS {
 			needsSOCKS = true
 		}
 	}
@@ -82,12 +89,18 @@ func handleSystemInstall(ctx *actions.Context) error {
 	out.Info("Configuring firewall...")
 	needsDNS := false
 	needsHTTPS := false
+	needsSSHPort := false
+	needsSOCKSPort := false
 	for _, t := range transports {
 		switch t {
 		case config.TransportDNSTT, config.TransportSlipstream:
 			needsDNS = true
 		case config.TransportNaive:
 			needsHTTPS = true
+		case config.TransportSSH:
+			needsSSHPort = true
+		case config.TransportSOCKS:
+			needsSOCKSPort = true
 		}
 	}
 	if needsDNS {
@@ -102,6 +115,16 @@ func handleSystemInstall(ctx *actions.Context) error {
 	if needsHTTPS {
 		if err := network.AllowPort(443, "tcp"); err != nil {
 			out.Warning("Failed to open port 443/tcp: " + err.Error())
+		}
+	}
+	if needsSSHPort {
+		if err := network.AllowPort(22, "tcp"); err != nil {
+			out.Warning("Failed to open port 22/tcp: " + err.Error())
+		}
+	}
+	if needsSOCKSPort {
+		if err := network.AllowPort(1080, "tcp"); err != nil {
+			out.Warning("Failed to open port 1080/tcp: " + err.Error())
 		}
 	}
 
@@ -135,8 +158,41 @@ func handleSystemInstall(ctx *actions.Context) error {
 
 	// Walk through each installed transport
 	for tIdx, selectedTransport := range transports {
+		displayName := selectedTransport
+		if selectedTransport == config.TransportDNSTT {
+			displayName = "dnstt/noizdns"
+		}
+
 		out.Print("")
-		out.Print(fmt.Sprintf("  ── %s ──", selectedTransport))
+		out.Print(fmt.Sprintf("  ── %s ──", displayName))
+
+		// Direct transports (SSH, SOCKS5) have no domain and an implicit backend
+		if selectedTransport == config.TransportSSH || selectedTransport == config.TransportSOCKS {
+			implicitBackend := config.BackendSSH
+			if selectedTransport == config.TransportSOCKS {
+				implicitBackend = config.BackendSOCKS
+			}
+
+			tag := selectedTransport
+			tunnel := config.TunnelConfig{
+				Tag:       tag,
+				Transport: selectedTransport,
+				Backend:   implicitBackend,
+				Enabled:   true,
+			}
+
+			if err := cfg.ValidateNewTunnel(&tunnel); err != nil {
+				out.Warning(fmt.Sprintf("Skip %s: %v", tag, err))
+			} else {
+				cfg.AddTunnel(tunnel)
+				allTunnels = append(allTunnels, tunnel)
+				if selectedTransport == config.TransportSOCKS {
+					setupMicrosocks = true
+				}
+				out.Success(fmt.Sprintf("Tunnel %q added", tag))
+			}
+			continue
+		}
 
 		// Ask for domain
 		domainHint := "t.example.com"
@@ -145,12 +201,12 @@ func handleSystemInstall(ctx *actions.Context) error {
 		} else if selectedTransport == config.TransportSlipstream {
 			domainHint = "s.example.com"
 		}
-		domain, err := prompt.String(fmt.Sprintf("Domain for %s (e.g. %s)", selectedTransport, domainHint), "")
+		domain, err := prompt.String(fmt.Sprintf("Domain for %s (e.g. %s)", displayName, domainHint), "")
 		if err != nil {
 			return err
 		}
 		if domain == "" {
-			out.Warning(fmt.Sprintf("Skipping %s (no domain)", selectedTransport))
+			out.Warning(fmt.Sprintf("Skipping %s (no domain)", displayName))
 			continue
 		}
 
@@ -416,6 +472,9 @@ func handleSystemInstall(ctx *actions.Context) error {
 	out.Print("    DNS Records Required:")
 	shownRecords := make(map[string]bool)
 	for _, t := range allTunnels {
+		if t.IsDirectTransport() {
+			continue
+		}
 		if t.Transport == config.TransportNaive {
 			rec := fmt.Sprintf("A:%s", t.Domain)
 			if !shownRecords[rec] {

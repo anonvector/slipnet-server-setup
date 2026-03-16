@@ -153,7 +153,11 @@ Match Group slipgate-ssh
 		return err
 	}
 
-	return run("systemctl", "reload", "sshd")
+	// Try "sshd" (RHEL/CentOS) first, then "ssh" (Debian/Ubuntu)
+	if err := run("systemctl", "reload", "sshd"); err != nil {
+		return run("systemctl", "reload", "ssh")
+	}
+	return nil
 }
 
 func userExists(name string) bool {

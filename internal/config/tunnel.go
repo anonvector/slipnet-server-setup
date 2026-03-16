@@ -5,6 +5,8 @@ const (
 	TransportDNSTT      = "dnstt"
 	TransportSlipstream = "slipstream"
 	TransportNaive      = "naive"
+	TransportSSH        = "direct-ssh"
+	TransportSOCKS      = "direct-socks5"
 )
 
 // TunnelConfig defines a single tunnel.
@@ -48,6 +50,15 @@ type NaiveConfig struct {
 func (t *TunnelConfig) IsDNSTunnel() bool {
 	switch t.Transport {
 	case TransportDNSTT, TransportSlipstream:
+		return true
+	}
+	return false
+}
+
+// IsDirectTransport returns true for transports that expose a service directly (no tunnel).
+func (t *TunnelConfig) IsDirectTransport() bool {
+	switch t.Transport {
+	case TransportSSH, TransportSOCKS:
 		return true
 	}
 	return false
