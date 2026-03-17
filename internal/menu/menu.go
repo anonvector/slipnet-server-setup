@@ -51,14 +51,17 @@ func Run(cfg *config.Config, cfgErr error) error {
 			if err := runAction(actions.SystemUsers, cfg); err != nil {
 				printError(err)
 			}
+			waitForEnter()
 		case "install":
 			if err := runAction(actions.SystemInstall, cfg); err != nil {
 				printError(err)
 			}
+			waitForEnter()
 		case "update":
 			if err := runAction(actions.SystemUpdate, cfg); err != nil {
 				printError(err)
 			}
+			waitForEnter()
 		case "uninstall":
 			if err := runAction(actions.SystemUninstall, cfg); err != nil {
 				printError(err)
@@ -176,6 +179,11 @@ func runAction(id string, cfg *config.Config) error {
 		return fmt.Errorf("dispatcher not set")
 	}
 	return Dispatcher(id, ctx)
+}
+
+func waitForEnter() {
+	fmt.Print("\n  Press Enter to continue...")
+	reader.ReadString('\n')
 }
 
 func printError(err error) {
