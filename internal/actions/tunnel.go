@@ -7,13 +7,13 @@ func init() {
 		Category: "tunnel",
 		Inputs: []InputField{
 			{Key: "transport", Label: "Transport", Required: true, Options: TransportOptions},
-			{Key: "backend", Label: "Backend", Required: true, Options: BackendOptions},
+			{Key: "backend", Label: "Backend", Required: true, Options: BackendOptions, DependsOn: "transport", DependsOnValues: []string{"dnstt", "slipstream", "naive"}},
 			{Key: "tag", Label: "Tag (unique name)", Required: true},
-			{Key: "domain", Label: "Domain", Required: true},
+			{Key: "domain", Label: "Domain", Required: true, DependsOn: "transport", DependsOnValues: []string{"dnstt", "slipstream", "naive"}},
 			{Key: "private-key", Label: "Private key (hex, DNSTT only)", DependsOn: "transport", DependsOnValues: []string{"dnstt"}},
 			{Key: "public-key", Label: "Public key (hex, DNSTT only)", DependsOn: "transport", DependsOnValues: []string{"dnstt"}},
-			{Key: "email", Label: "Email (for Let's Encrypt, NaiveProxy only)"},
-			{Key: "decoy-url", Label: "Decoy URL (NaiveProxy only)"},
+			{Key: "email", Label: "Email (for Let's Encrypt)", DependsOn: "transport", DependsOnValues: []string{"naive"}},
+			{Key: "decoy-url", Label: "Decoy URL", DependsOn: "transport", DependsOnValues: []string{"naive"}},
 		},
 	})
 

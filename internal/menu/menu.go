@@ -119,7 +119,7 @@ func tunnelMenu(cfg *config.Config) error {
 	actions.ClearScreen()
 	fmt.Println("\n  Tunnel Management")
 	fmt.Println("  ─────────────────")
-	fmt.Println("  1) Add tunnel")
+	fmt.Println("  1) Add tunnel(s)")
 	fmt.Println("  2) List / Status")
 	fmt.Println("  3) Share tunnel")
 	fmt.Println("  4) Start tunnel")
@@ -137,7 +137,7 @@ func tunnelMenu(cfg *config.Config) error {
 
 	switch trimLine(line) {
 	case "1":
-		return runAction(actions.TunnelAdd, cfg)
+		return batchTunnelAdd(cfg)
 	case "2":
 		if err := runAction(actions.TunnelStatus, cfg); err != nil {
 			return err
@@ -215,4 +215,112 @@ func trimLine(s string) string {
 		s = s[:len(s)-1]
 	}
 	return s
+}
+
+// batchTunnelAdd allows selecting one or more transports (comma-separated)
+// and creates a tunnel for each, prompting for per-transport fields.
+func batchTunnelAdd(cfg *config.Config) error {
+	freshCfg, err := config.Load()
+	if err == nil {
+		cfg = freshCfg
+	}
+
+	transports, err := prompt.MultiSelect("Transport", actions.TransportOptions)
+	if err != nil {
+		return err
+	}
+	if len(transports) == 0 {
+		return fmt.Errorf("no transports selected")
+	}
+
+	// If single transport, fall through to normal add flow
+	if len(transports) == 1 {
+		ctx := &actions.Context{
+			Args:   map[string]string{"transport": transports[0]},
+			Output: &actions.StdOutput{},
+			Config: cfg,
+		}
+		a, _ := actions.Get(actions.TunnelAdd)
+		args, err := prompt.CollectInputs(a, ctx.Args)
+		if err != nil {
+			return err
+		}
+		ctx.Args = args
+		return Dispatcher(actions.TunnelAdd, ctx)
+	}
+
+	// Multi transport: prompt shared fields, then per-transport fields
+	for _, t := range transports {
+		isDirect := t == config.TransportSSH || t == config.TransportSOCKS
+		displayName := t
+		for _, opt := range actions.TransportOptions {
+			if opt.Value == t {
+				displayName = opt.Label
+				break
+			}
+		}
+		fmt.Printf("\n  ── %s ──\n", displayName)
+
+		args := map[string]string{"transport": t}
+
+		if isDirect {
+			if t == config.TransportSSH {
+				args["backend"] = config.BackendSSH
+			} else {
+				args["backend"] = config.BackendSOCKS
+			}
+		} else {
+			backend, err := prompt.Select("Backend", actions.BackendOptions)
+			if err != nil {
+				return err
+			}
+			args["backend"] = backend
+		}
+
+		tag, err := prompt.String("Tag (unique name)", "")
+		if err != nil {
+			return err
+		}
+		args["tag"] = tag
+
+		if !isDirect {
+			domain, err := prompt.String("Domain", "")
+			if err != nil {
+				return err
+			}
+			args["domain"] = domain
+		}
+
+		// Transport-specific fields
+		if t == config.TransportNaive {
+			email, err := prompt.String("Email (for Let's Encrypt)", "")
+			if err != nil {
+				return err
+			}
+			args["email"] = email
+			decoy, err := prompt.String("Decoy URL", config.RandomDecoyURL())
+			if err != nil {
+				return err
+			}
+			args["decoy-url"] = decoy
+		}
+
+		ctx := &actions.Context{
+			Args:   args,
+			Output: &actions.StdOutput{},
+			Config: cfg,
+		}
+		if err := Dispatcher(actions.TunnelAdd, ctx); err != nil {
+			printError(err)
+			continue
+		}
+
+		// Reload config for next iteration
+		if freshCfg, err := config.Load(); err == nil {
+			cfg = freshCfg
+		}
+	}
+
+	waitForEnter()
+	return nil
 }
