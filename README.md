@@ -102,6 +102,15 @@ sudo slipgate tunnel add \
   --tag mydnstt \
   --domain t.example.com
 
+# DNSTT tunnel with custom keys
+sudo slipgate tunnel add \
+  --transport dnstt \
+  --backend socks \
+  --tag mytunnel \
+  --domain t.example.com \
+  --private-key <64-char-hex> \
+  --public-key <64-char-hex>   # optional, validated if provided
+
 # Slipstream tunnel
 sudo slipgate tunnel add \
   --transport slipstream \
@@ -187,8 +196,8 @@ A   example.com           → <server IP>
 
 ### Routing Modes
 
-- **Single mode**: One active tunnel listens directly on port 53
-- **Multi mode**: DNS router on port 53 dispatches queries by domain to different tunnels running on local ports. Auto-enabled when multiple DNS tunnels are created.
+- **Single mode**: One active tunnel runs; DNS router on port 53 forwards to it
+- **Multi mode**: All tunnels run on local ports; DNS router on port 53 dispatches queries by domain. Auto-enabled when multiple DNS tunnels are created.
 
 ## Client Configuration
 

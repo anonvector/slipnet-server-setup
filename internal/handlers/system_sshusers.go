@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/anonvector/slipgate/internal/actions"
 	"github.com/anonvector/slipgate/internal/clientcfg"
@@ -181,8 +182,8 @@ func showUserConfigs(cfg *config.Config, username, password string, out actions.
 				continue
 			}
 			label := t.Tag
-			if mode != "" {
-				label += " (" + mode + ")"
+			if mode == clientcfg.ClientModeNoizDNS {
+				label = strings.ReplaceAll(label, "dnstt", "noizdns")
 			}
 			out.Print(fmt.Sprintf("  [%s]", label))
 			out.Print(fmt.Sprintf("  %s", uri))

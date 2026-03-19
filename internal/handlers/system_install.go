@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/anonvector/slipgate/internal/actions"
 	"github.com/anonvector/slipgate/internal/binary"
@@ -556,8 +557,8 @@ func handleSystemInstall(ctx *actions.Context) error {
 						continue
 					}
 					label := t.Tag
-					if mode != "" {
-						label += " (" + mode + ")"
+					if mode == clientcfg.ClientModeNoizDNS {
+						label = strings.ReplaceAll(label, "dnstt", "noizdns")
 					}
 					out.Print(fmt.Sprintf("    [%s] %s", label, u.Username))
 					out.Print(fmt.Sprintf("    %s", uri))

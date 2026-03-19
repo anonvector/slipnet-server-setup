@@ -10,6 +10,8 @@ func init() {
 			{Key: "backend", Label: "Backend", Required: true, Options: BackendOptions},
 			{Key: "tag", Label: "Tag (unique name)", Required: true},
 			{Key: "domain", Label: "Domain", Required: true},
+			{Key: "private-key", Label: "Private key (hex, DNSTT only)", DependsOn: "transport", DependsOnValues: []string{"dnstt"}},
+			{Key: "public-key", Label: "Public key (hex, DNSTT only)", DependsOn: "transport", DependsOnValues: []string{"dnstt"}},
 			{Key: "email", Label: "Email (for Let's Encrypt, NaiveProxy only)"},
 			{Key: "decoy-url", Label: "Decoy URL (NaiveProxy only)"},
 		},

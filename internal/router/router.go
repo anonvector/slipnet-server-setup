@@ -11,18 +11,27 @@ import (
 // AddTunnel registers a tunnel with the routing layer.
 // DNS tunnels always use internal ports (5310+), so the DNS router must be
 // running to forward port 53 traffic regardless of single or multi mode.
+// If the router is already running, it is restarted to pick up new config.
 func AddTunnel(cfg *config.Config, tunnel *config.TunnelConfig) error {
 	if !tunnel.IsDNSTunnel() {
 		return nil // NaiveProxy doesn't need DNS routing
 	}
 
+	status, _ := service.Status("slipgate-dnsrouter")
+	if status == "active" {
+		return dnsrouter.RestartRouterService()
+	}
 	return ensureRouterRunning()
 }
 
 // RemoveTunnel unregisters a tunnel from routing.
+// Restarts the router to drop the removed tunnel's route.
 func RemoveTunnel(cfg *config.Config, tag string) error {
-	// Restart router to pick up new config (router always runs when DNS tunnels exist)
-	return dnsrouter.RestartRouterService()
+	status, _ := service.Status("slipgate-dnsrouter")
+	if status == "active" {
+		return dnsrouter.RestartRouterService()
+	}
+	return nil
 }
 
 // SwitchActive changes the active tunnel in single mode.

@@ -91,11 +91,28 @@ func handleTunnelAdd(ctx *actions.Context) error {
 	case config.TransportDNSTT:
 		privKeyPath := filepath.Join(tunnelDir, "server.key")
 		pubKeyPath := filepath.Join(tunnelDir, "server.pub")
-		out.Info("Generating Curve25519 keypair...")
-		pubKey, err := keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)
-		if err != nil {
-			return actions.NewError(actions.TunnelAdd, "key generation failed", err)
+
+		privKeyHex := ctx.GetArg("private-key")
+		pubKeyHex := ctx.GetArg("public-key")
+
+		var pubKey string
+		var err error
+
+		switch {
+		case privKeyHex != "" && pubKeyHex != "":
+			out.Info("Importing provided keypair...")
+			pubKey, err = keys.ImportDNSTTKeyPair(privKeyHex, pubKeyHex, privKeyPath, pubKeyPath)
+		case privKeyHex != "":
+			out.Info("Importing private key and deriving public key...")
+			pubKey, err = keys.ImportDNSTTKeys(privKeyHex, privKeyPath, pubKeyPath)
+		default:
+			out.Info("Generating Curve25519 keypair...")
+			pubKey, err = keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)
 		}
+		if err != nil {
+			return actions.NewError(actions.TunnelAdd, "key setup failed", err)
+		}
+
 		tunnel.DNSTT = &config.DNSTTConfig{
 			MTU:        config.DefaultMTU,
 			PrivateKey: privKeyPath,
@@ -145,6 +162,21 @@ func handleTunnelAdd(ctx *actions.Context) error {
 		cfg.Route.Active = tag
 		cfg.Route.Default = tag
 	}
+
+	// Auto-switch to multi mode when adding a second DNS tunnel
+	if tunnel.IsDNSTunnel() && cfg.Route.Mode == "single" {
+		dnsTunnelCount := 0
+		for _, t := range cfg.Tunnels {
+			if t.IsDNSTunnel() && t.Enabled {
+				dnsTunnelCount++
+			}
+		}
+		if dnsTunnelCount > 1 {
+			cfg.Route.Mode = "multi"
+			out.Info("Switched to multi-tunnel mode")
+		}
+	}
+
 	if err := cfg.Save(); err != nil {
 		return actions.NewError(actions.TunnelAdd, "failed to save config", err)
 	}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/anonvector/slipgate/internal/config"
-	"github.com/anonvector/slipgate/internal/dnsrouter"
 	"github.com/anonvector/slipgate/internal/service"
 )
 
@@ -23,40 +22,22 @@ func SwitchMode(cfg *config.Config, newMode string) error {
 }
 
 func switchToMulti(cfg *config.Config) error {
-	// Stop all tunnel services that listen on :53 directly
+	// Start all DNS tunnel services on their internal ports
 	for _, t := range cfg.Tunnels {
 		if t.IsDNSTunnel() && t.Enabled {
 			svcName := service.TunnelServiceName(t.Tag)
-			_ = service.Stop(svcName)
-		}
-	}
-
-	// Create and start the DNS router
-	if err := dnsrouter.CreateRouterService(); err != nil {
-		return fmt.Errorf("create router: %w", err)
-	}
-	if err := dnsrouter.StartRouterService(); err != nil {
-		return fmt.Errorf("start router: %w", err)
-	}
-
-	// Restart all tunnel services on their local ports
-	for _, t := range cfg.Tunnels {
-		if t.IsDNSTunnel() && t.Enabled {
-			svcName := service.TunnelServiceName(t.Tag)
-			if err := service.Start(svcName); err != nil {
+			if err := service.Restart(svcName); err != nil {
 				return fmt.Errorf("start tunnel %s: %w", t.Tag, err)
 			}
 		}
 	}
 
-	return nil
+	// Ensure the DNS router is running (forwards :53 → internal ports)
+	return ensureRouterRunning()
 }
 
 func switchToSingle(cfg *config.Config) error {
-	// Stop the DNS router
-	_ = dnsrouter.StopRouterService()
-
-	// Stop all tunnel services except the active one
+	// Stop all DNS tunnel services except the active one
 	for _, t := range cfg.Tunnels {
 		if t.IsDNSTunnel() && t.Enabled && t.Tag != cfg.Route.Active {
 			svcName := service.TunnelServiceName(t.Tag)
@@ -64,11 +45,14 @@ func switchToSingle(cfg *config.Config) error {
 		}
 	}
 
-	// Restart the active tunnel to listen on :53 directly
+	// Restart the active tunnel on its internal port
 	if cfg.Route.Active != "" {
 		svcName := service.TunnelServiceName(cfg.Route.Active)
-		return service.Restart(svcName)
+		if err := service.Restart(svcName); err != nil {
+			return fmt.Errorf("restart active tunnel: %w", err)
+		}
 	}
 
-	return nil
+	// DNS router must stay running to forward :53 → internal ports
+	return ensureRouterRunning()
 }

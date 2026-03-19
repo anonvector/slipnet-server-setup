@@ -56,6 +56,21 @@ func handleTunnelRemove(ctx *actions.Context) error {
 			cfg.Route.Active = cfg.Tunnels[0].Tag
 		}
 	}
+
+	// Auto-switch to single mode when only one DNS tunnel remains
+	if cfg.Route.Mode == "multi" {
+		dnsTunnelCount := 0
+		for _, t := range cfg.Tunnels {
+			if t.IsDNSTunnel() && t.Enabled {
+				dnsTunnelCount++
+			}
+		}
+		if dnsTunnelCount <= 1 {
+			cfg.Route.Mode = "single"
+			ctx.Output.Info("Switched to single-tunnel mode")
+		}
+	}
+
 	if err := cfg.Save(); err != nil {
 		return actions.NewError(actions.TunnelRemove, "failed to save config", err)
 	}
