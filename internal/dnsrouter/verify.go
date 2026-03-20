@@ -117,12 +117,15 @@ func (r *Router) handleVerify(packet []byte, clientAddr *net.UDPAddr) bool {
 	respHMAC := mac2.Sum(nil) // 32 bytes
 
 	// Build raw binary TXT payload: 32-byte HMAC + random binary padding.
-	// Matches real dnstt-server responses which contain raw encrypted data.
-	// TXT record overhead per 255-byte chunk = 1 byte length prefix.
+	// Pad to the tunnel's configured MTU so the response matches what
+	// dnstt-server would produce at full capacity.
+	targetTotal := vr.mtu
+	if targetTotal < 200 {
+		targetTotal = 200
+	}
 	overhead := qEnd + 14 + 11 // header+question + answer fixed + EDNS0 OPT
-	targetTotal := 200 + randInt(60) // 200-260 bytes total
 	targetPayload := targetTotal - overhead
-	// Account for TXT length prefixes: ~1 byte per 255 bytes of data
+	// Account for TXT length prefixes: 1 byte per 255 bytes of data
 	targetData := targetPayload - (targetPayload / 256) - 1
 	if targetData < 32 {
 		targetData = 32
