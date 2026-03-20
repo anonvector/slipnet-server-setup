@@ -2,10 +2,12 @@ package dnsrouter
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/binary"
 	"log"
+	"math/big"
 	"net"
 	"strings"
 )
@@ -116,12 +118,12 @@ func (r *Router) handleVerify(packet []byte, clientAddr *net.UDPAddr) bool {
 
 	respEncoded := verifyEncoding.EncodeToString(respBytes)
 
-	// Pad to match real dnstt-server response sizes (~200-250 bytes total).
-	// Real dnstt responses are NOT padded to the full MTU — they're only as
-	// large as the tunnel data they carry. Padding to full MTU (1232) causes
-	// resolvers to strip the TXT answer section.
+	// Pad to match real dnstt-server response sizes. Real responses vary
+	// based on tunnel data (~60-250 bytes), not the configured MTU.
+	// Randomize within the observed range so prism responses have natural
+	// variation like real tunnel traffic.
 	overhead := qEnd + 14 + 11 // header+question + answer fixed + EDNS0 OPT
-	targetTotal := 240         // match typical dnstt response size
+	targetTotal := 200 + randInt(60) // 200-260 bytes total
 	targetTXT := targetTotal - overhead
 	if targetTXT > len(respEncoded) {
 		respEncoded = padResponse(respEncoded, targetTXT)
@@ -220,4 +222,10 @@ func buildTXTResponseWithEDNS(query []byte, qEnd int, txt string, ednsPayloadSiz
 	resp = append(resp, 0x00, 0x00)                                             // RDLENGTH: 0
 
 	return resp
+}
+
+// randInt returns a random int in [0, n).
+func randInt(n int) int {
+	r, _ := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	return int(r.Int64())
 }
