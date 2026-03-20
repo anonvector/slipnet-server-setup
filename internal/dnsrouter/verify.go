@@ -116,9 +116,17 @@ func (r *Router) handleVerify(packet []byte, clientAddr *net.UDPAddr) bool {
 
 	respEncoded := verifyEncoding.EncodeToString(respBytes)
 
-	// Build response with EDNS0 OPT record.
-	// No padding for now — just the 52-char HMAC. Padding to MTU can cause
-	// resolvers to drop the answer section when the response is too large.
+	// Pad to match real dnstt-server response sizes (~200-250 bytes total).
+	// Real dnstt responses are NOT padded to the full MTU — they're only as
+	// large as the tunnel data they carry. Padding to full MTU (1232) causes
+	// resolvers to strip the TXT answer section.
+	overhead := qEnd + 14 + 11 // header+question + answer fixed + EDNS0 OPT
+	targetTotal := 240         // match typical dnstt response size
+	targetTXT := targetTotal - overhead
+	if targetTXT > len(respEncoded) {
+		respEncoded = padResponse(respEncoded, targetTXT)
+	}
+
 	resp := buildTXTResponseWithEDNS(packet, qEnd, respEncoded, 1232)
 	if _, err := r.conn.WriteToUDP(resp, clientAddr); err != nil {
 		log.Printf("verify: write: %v", err)
