@@ -402,7 +402,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 		out.Info("Starting DNS router...")
 		if err := dnsrouter.CreateRouterService(); err != nil {
 			out.Warning("Failed to create DNS router service: " + err.Error())
-		} else if err := dnsrouter.StartRouterService(); err != nil {
+		} else if err := dnsrouter.RestartRouterService(); err != nil {
 			out.Warning("Failed to start DNS router: " + err.Error())
 		} else {
 			out.Success("DNS router started on 0.0.0.0:53")
