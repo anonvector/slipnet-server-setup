@@ -1,7 +1,6 @@
 package prompt
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strconv"
@@ -10,17 +9,16 @@ import (
 	"github.com/anonvector/slipgate/internal/actions"
 )
 
-var reader = bufio.NewReader(os.Stdin)
-
-// String asks for a string value.
+// String asks for a string value with line editing support.
 func String(label, defaultVal string) (string, error) {
+	var prompt string
 	if defaultVal != "" {
-		fmt.Printf("  %s [%s]: ", label, defaultVal)
+		prompt = fmt.Sprintf("  %s [%s]: ", label, defaultVal)
 	} else {
-		fmt.Printf("  %s: ", label)
+		prompt = fmt.Sprintf("  %s: ", label)
 	}
 
-	line, err := reader.ReadString('\n')
+	line, err := readLine(prompt)
 	if err != nil {
 		return "", err
 	}
@@ -48,9 +46,8 @@ func Select(label string, options []actions.SelectOption) (string, error) {
 	for i, opt := range options {
 		fmt.Printf("    %d) %s\n", i+1, opt.Label)
 	}
-	fmt.Print("  Choice: ")
 
-	line, err := reader.ReadString('\n')
+	line, err := readLine("  Choice: ")
 	if err != nil {
 		return "", err
 	}
@@ -76,9 +73,8 @@ func MultiSelect(label string, options []actions.SelectOption) ([]string, error)
 		fmt.Printf("    %d) %s\n", i+1, opt.Label)
 	}
 	fmt.Printf("    %d) All\n", len(options)+1)
-	fmt.Print("  Choice (comma-separated, e.g. 1,3,4): ")
 
-	line, err := reader.ReadString('\n')
+	line, err := readLine("  Choice (comma-separated, e.g. 1,3,4): ")
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +113,7 @@ func MultiSelect(label string, options []actions.SelectOption) ([]string, error)
 
 // Confirm asks a yes/no question (default: no).
 func Confirm(message string) (bool, error) {
-	fmt.Printf("  %s [y/N]: ", message)
-	line, err := reader.ReadString('\n')
+	line, err := readLine(fmt.Sprintf("  %s [y/N]: ", message))
 	if err != nil {
 		return false, err
 	}
@@ -128,8 +123,7 @@ func Confirm(message string) (bool, error) {
 
 // ConfirmYes asks a yes/no question (default: yes).
 func ConfirmYes(message string) (bool, error) {
-	fmt.Printf("  %s [Y/n]: ", message)
-	line, err := reader.ReadString('\n')
+	line, err := readLine(fmt.Sprintf("  %s [Y/n]: ", message))
 	if err != nil {
 		return false, err
 	}
@@ -138,6 +132,16 @@ func ConfirmYes(message string) (bool, error) {
 		return true, nil
 	}
 	return line != "n" && line != "no", nil
+}
+
+// readSimple is a fallback line reader for non-terminal input.
+func readSimple() (string, error) {
+	var buf [4096]byte
+	n, err := os.Stdin.Read(buf[:])
+	if err != nil {
+		return "", err
+	}
+	return sanitize(strings.TrimRight(string(buf[:n]), "\r\n")), nil
 }
 
 // CollectInputs collects all required inputs for an action.

@@ -1,0 +1,157 @@
+package prompt
+
+import (
+	"fmt"
+	"os"
+
+	"golang.org/x/term"
+)
+
+// readLine reads a line with arrow keys, home/end, delete, backspace support.
+// prompt is printed first and used to calculate redraw positions.
+func readLine(prompt string) (string, error) {
+	fd := int(os.Stdin.Fd())
+
+	if !term.IsTerminal(fd) {
+		fmt.Print(prompt)
+		return readSimple()
+	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Print(prompt)
+		return readSimple()
+	}
+	defer term.Restore(fd, oldState)
+
+	// Print prompt
+	writeStr(prompt)
+
+	var buf []byte
+	pos := 0
+
+	for {
+		b, err := readByte()
+		if err != nil {
+			return "", err
+		}
+
+		switch b {
+		case '\r', '\n':
+			writeStr("\r\n")
+			return string(buf), nil
+
+		case 3: // Ctrl-C
+			writeStr("\r\n")
+			return "", fmt.Errorf("interrupted")
+
+		case 4: // Ctrl-D
+			if len(buf) == 0 {
+				writeStr("\r\n")
+				return "", fmt.Errorf("interrupted")
+			}
+
+		case 127, 8: // Backspace
+			if pos > 0 {
+				buf = append(buf[:pos-1], buf[pos:]...)
+				pos--
+				refreshLine(prompt, buf, pos)
+			}
+
+		case 27: // ESC sequence
+			seq0, _ := readByte()
+			if seq0 != '[' {
+				continue
+			}
+			seq1, _ := readByte()
+			switch seq1 {
+			case 'D': // Left
+				if pos > 0 {
+					pos--
+					writeStr("\033[D")
+				}
+			case 'C': // Right
+				if pos < len(buf) {
+					pos++
+					writeStr("\033[C")
+				}
+			case 'H': // Home
+				pos = 0
+				setCursorCol(len(prompt) + 1)
+			case 'F': // End
+				pos = len(buf)
+				setCursorCol(len(prompt) + len(buf) + 1)
+			case '3': // Delete (ESC [ 3 ~)
+				readByte() // consume ~
+				if pos < len(buf) {
+					buf = append(buf[:pos], buf[pos+1:]...)
+					refreshLine(prompt, buf, pos)
+				}
+			case '1': // Home alt (ESC [ 1 ~)
+				readByte() // consume ~
+				pos = 0
+				setCursorCol(len(prompt) + 1)
+			case '4': // End alt (ESC [ 4 ~)
+				readByte() // consume ~
+				pos = len(buf)
+				setCursorCol(len(prompt) + len(buf) + 1)
+			}
+
+		case 1: // Ctrl-A (Home)
+			pos = 0
+			setCursorCol(len(prompt) + 1)
+
+		case 5: // Ctrl-E (End)
+			pos = len(buf)
+			setCursorCol(len(prompt) + len(buf) + 1)
+
+		case 21: // Ctrl-U (clear to start)
+			buf = buf[pos:]
+			pos = 0
+			refreshLine(prompt, buf, pos)
+
+		case 11: // Ctrl-K (clear to end)
+			buf = buf[:pos]
+			refreshLine(prompt, buf, pos)
+
+		default:
+			if b >= 0x20 && b < 0x7F {
+				buf = append(buf, 0)
+				copy(buf[pos+1:], buf[pos:])
+				buf[pos] = b
+				pos++
+				if pos == len(buf) {
+					// Appending at end — just echo the character
+					os.Stdout.Write([]byte{b})
+				} else {
+					refreshLine(prompt, buf, pos)
+				}
+			}
+		}
+	}
+}
+
+// refreshLine redraws the prompt + buffer and places cursor at pos.
+func refreshLine(prompt string, buf []byte, pos int) {
+	// Move to column 1, reprint prompt + buffer, clear remainder, reposition cursor
+	writeStr("\r")                // go to column 1
+	writeStr(prompt)              // reprint prompt
+	os.Stdout.Write(buf)          // print buffer
+	writeStr("\033[K")            // clear to end of line
+	setCursorCol(len(prompt) + pos + 1) // position cursor
+}
+
+// setCursorCol moves the cursor to an absolute column (1-based).
+func setCursorCol(col int) {
+	writeStr(fmt.Sprintf("\033[%dG", col))
+}
+
+func writeStr(s string) {
+	os.Stdout.WriteString(s)
+}
+
+func readByte() (byte, error) {
+	var b [1]byte
+	_, err := os.Stdin.Read(b[:])
+	return b[0], err
+}
