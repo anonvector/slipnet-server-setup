@@ -382,14 +382,6 @@ func handleSystemInstall(ctx *actions.Context) error {
 		}
 	}
 
-	// In single mode, free port 53 for direct binding.
-	// In multi mode, free internal ports for DNS router forwarding.
-	if cfg.Route.Mode != "multi" && dnsTunnelCount > 0 {
-		network.FreePort(53, "udp")
-		// Stop DNS router if it was running from a previous install
-		_ = dnsrouter.StopRouterService()
-	}
-
 	// Create and start systemd services
 	for i := range allTunnels {
 		// Free the port in case a stale process is holding it
@@ -403,9 +395,10 @@ func handleSystemInstall(ctx *actions.Context) error {
 		out.Success(fmt.Sprintf("Tunnel %q started", allTunnels[i].Tag))
 	}
 
-	// Multi mode: start DNS router to route queries by domain to internal ports.
-	// Single mode: transport binds directly to port 53, no router needed.
-	if cfg.Route.Mode == "multi" && dnsTunnelCount > 0 {
+	// Start DNS router to forward port 53 to internal tunnel ports.
+	// Also handles HMAC verification probes for the scanner.
+	if dnsTunnelCount > 0 {
+		network.FreePort(53, "udp")
 		out.Info("Starting DNS router...")
 		if err := dnsrouter.CreateRouterService(); err != nil {
 			out.Warning("Failed to create DNS router service: " + err.Error())
