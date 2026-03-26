@@ -12,6 +12,7 @@ import (
 	"github.com/anonvector/slipgate/internal/config"
 	"github.com/anonvector/slipgate/internal/proxy"
 	"github.com/anonvector/slipgate/internal/service"
+	"github.com/anonvector/slipgate/internal/transport"
 	"github.com/anonvector/slipgate/internal/version"
 )
 
@@ -104,18 +105,31 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		}
 	}
 
-	// Restart all running slipgate services
+	// Regenerate and restart all tunnel services
+	// This ensures systemd unit files match the current binary interface
+	// (e.g. PT environment variables for noizdns dnstt-server).
 	out.Print("")
-	out.Info("Restarting services...")
+	out.Info("Regenerating services...")
 	cfg := ctx.Config.(*config.Config)
-	for _, t := range cfg.Tunnels {
+	for i := range cfg.Tunnels {
+		t := &cfg.Tunnels[i]
+		if t.IsDirectTransport() {
+			continue
+		}
 		svcName := service.TunnelServiceName(t.Tag)
+		wasActive := false
 		if status, _ := service.Status(svcName); status == "active" {
-			if err := service.Restart(svcName); err != nil {
-				out.Warning(fmt.Sprintf("Failed to restart %s: %v", svcName, err))
-			} else {
-				out.Success(fmt.Sprintf("  %s restarted", svcName))
-			}
+			wasActive = true
+			_ = service.Stop(svcName)
+		}
+		if err := transport.CreateService(t, cfg); err != nil {
+			out.Warning(fmt.Sprintf("Failed to regenerate %s: %v", svcName, err))
+			continue
+		}
+		if wasActive {
+			out.Success(fmt.Sprintf("  %s regenerated and restarted", svcName))
+		} else {
+			out.Success(fmt.Sprintf("  %s regenerated", svcName))
 		}
 	}
 	for _, svc := range []string{"slipgate-dnsrouter", "slipgate-socks5"} {
