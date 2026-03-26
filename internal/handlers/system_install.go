@@ -172,6 +172,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 	}
 
 	// Walk through each installed transport
+	knownParent := "" // reuse parent domain from the first tunnel for subsequent hints
 	for tIdx, selectedTransport := range transports {
 		displayName := selectedTransport
 		if selectedTransport == config.TransportDNSTT {
@@ -209,20 +210,35 @@ func handleSystemInstall(ctx *actions.Context) error {
 			continue
 		}
 
-		// Ask for domain
-		domainHint := "t.example.com"
-		if selectedTransport == config.TransportNaive {
+		// Ask for domain — reuse the parent domain from a previous tunnel if available
+		var domainHint, domainDefault string
+		switch {
+		case selectedTransport == config.TransportNaive && knownParent != "":
+			domainHint = knownParent
+			domainDefault = knownParent
+		case selectedTransport == config.TransportNaive:
 			domainHint = "example.com"
-		} else if selectedTransport == config.TransportSlipstream {
+		case selectedTransport == config.TransportSlipstream && knownParent != "":
+			domainHint = "s." + knownParent
+			domainDefault = "s." + knownParent
+		case selectedTransport == config.TransportSlipstream:
 			domainHint = "s.example.com"
+		case selectedTransport == config.TransportDNSTT && knownParent != "":
+			domainHint = "t." + knownParent
+			domainDefault = "t." + knownParent
+		default:
+			domainHint = "t.example.com"
 		}
-		domain, err := prompt.String(fmt.Sprintf("Domain for %s (e.g. %s)", displayName, domainHint), "")
+		domain, err := prompt.String(fmt.Sprintf("Domain for %s (e.g. %s)", displayName, domainHint), domainDefault)
 		if err != nil {
 			return err
 		}
 		if domain == "" {
 			out.Warning(fmt.Sprintf("Skipping %s (no domain)", displayName))
 			continue
+		}
+		if knownParent == "" {
+			knownParent = baseDomain(domain)
 		}
 
 		// Ask for MTU for DNSTT tunnels
