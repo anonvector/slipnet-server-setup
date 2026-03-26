@@ -34,14 +34,12 @@ BINARY="slipgate-${OS}-${ARCH}"
 # otherwise use the latest stable release.
 # Can also be overridden: SLIPGATE_RELEASE_TAG=dev-abc1234 bash install.sh
 RELEASE_TAG="${SLIPGATE_RELEASE_TAG:-}"
-if [[ -z "$RELEASE_TAG" ]]; then
-    SCRIPT_BRANCH="${SLIPGATE_BRANCH:-}"
-    # Auto-detect: raw.githubusercontent.com URLs contain the branch name
-    [[ "${BASH_ARGV0:-$0}" == *"/dev/"* ]] && SCRIPT_BRANCH="dev"
-    if [[ "$SCRIPT_BRANCH" == "dev" ]]; then
+CHANNEL="dev"  # ← set to "dev" on dev branch, empty on main
+if [[ -z "$RELEASE_TAG" && "$CHANNEL" == "dev" ]]; then
+    {
         RELEASE_TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
             | grep -o '"tag_name": *"dev-[^"]*"' | head -1 | cut -d'"' -f4 || true)
-    fi
+    }
 fi
 
 if [[ -n "$RELEASE_TAG" ]]; then
