@@ -70,7 +70,7 @@ func Start(name string) error {
 
 // Stop stops and disables a service. Silently skips if the service doesn't exist.
 func Stop(name string) error {
-	if !serviceExists(name) {
+	if !Exists(name) {
 		return nil
 	}
 	_ = runQuiet("systemctl", "stop", name+".service")
@@ -129,8 +129,8 @@ func runQuiet(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
 
-// serviceExists checks if a systemd unit file exists.
-func serviceExists(name string) bool {
+// Exists checks if a systemd unit file exists.
+func Exists(name string) bool {
 	path := filepath.Join(systemdDir, name+".service")
 	_, err := os.Stat(path)
 	return err == nil

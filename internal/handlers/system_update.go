@@ -144,7 +144,7 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		}
 	}
 	for _, svc := range []string{"slipgate-dnsrouter", "slipgate-socks5"} {
-		if status, _ := service.Status(svc); status == "active" {
+		if service.Exists(svc) {
 			if err := service.Restart(svc); err != nil {
 				out.Warning(fmt.Sprintf("Failed to restart %s: %v", svc, err))
 			} else {
