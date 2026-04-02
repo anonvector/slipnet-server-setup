@@ -104,10 +104,11 @@ func handleTunnelEdit(ctx *actions.Context) error {
 
 	case config.TransportVayDNS:
 		if tunnel.VayDNS != nil {
+			var err error
+
 			// MTU
 			mtuStr := ctx.GetArg("mtu")
 			if mtuStr == "" {
-				var err error
 				mtuStr, err = prompt.String("MTU", fmt.Sprintf("%d", tunnel.VayDNS.MTU))
 				if err != nil {
 					return err
@@ -123,7 +124,6 @@ func handleTunnelEdit(ctx *actions.Context) error {
 			// Private key
 			privKeyHex := ctx.GetArg("private-key")
 			if privKeyHex == "" {
-				var err error
 				privKeyHex, err = prompt.String("Private key (hex, blank to keep)", "")
 				if err != nil {
 					return err
@@ -136,7 +136,6 @@ func handleTunnelEdit(ctx *actions.Context) error {
 
 				pubKeyHex := ctx.GetArg("public-key")
 				var pubKey string
-				var err error
 				if pubKeyHex != "" {
 					pubKey, err = keys.ImportDNSTTKeyPair(privKeyHex, pubKeyHex, privKeyPath, pubKeyPath)
 				} else {
@@ -150,6 +149,90 @@ func handleTunnelEdit(ctx *actions.Context) error {
 					changed = true
 					out.Success(fmt.Sprintf("Public key: %s", pubKey))
 				}
+			}
+
+			// Record type
+			newRT := ctx.GetArg("record-type")
+			if newRT == "" {
+				currentRT := tunnel.VayDNS.RecordType
+				if currentRT == "" {
+					currentRT = "txt"
+				}
+				var err error
+				newRT, err = prompt.String("DNS record type (txt, cname, a, aaaa, mx, ns, srv)", currentRT)
+				if err != nil {
+					return err
+				}
+			}
+			if newRT != "" && newRT != tunnel.VayDNS.RecordType {
+				tunnel.VayDNS.RecordType = newRT
+				changed = true
+				out.Success(fmt.Sprintf("Record type set to %s", newRT))
+			}
+
+			// Idle timeout
+			newIT := ctx.GetArg("idle-timeout")
+			if newIT == "" {
+				currentIT := tunnel.VayDNS.ResolvedIdleTimeout()
+				newIT, err = prompt.String("Idle timeout", currentIT)
+				if err != nil {
+					return err
+				}
+			}
+			if newIT != "" && newIT != tunnel.VayDNS.IdleTimeout {
+				tunnel.VayDNS.IdleTimeout = newIT
+				changed = true
+				out.Success(fmt.Sprintf("Idle timeout set to %s", newIT))
+			}
+
+			// Keep alive
+			newKA := ctx.GetArg("keep-alive")
+			if newKA == "" {
+				currentKA := tunnel.VayDNS.ResolvedKeepAlive()
+				newKA, err = prompt.String("Keep alive", currentKA)
+				if err != nil {
+					return err
+				}
+			}
+			if newKA != "" && newKA != tunnel.VayDNS.KeepAlive {
+				tunnel.VayDNS.KeepAlive = newKA
+				changed = true
+				out.Success(fmt.Sprintf("Keep alive set to %s", newKA))
+			}
+
+			// Client ID size
+			cidStr := ctx.GetArg("clientid-size")
+			if cidStr == "" {
+				currentCID := tunnel.VayDNS.ResolvedClientIDSize()
+				cidStr, err = prompt.String("Client ID size", fmt.Sprintf("%d", currentCID))
+				if err != nil {
+					return err
+				}
+			}
+			var newCID int
+			if n, e := fmt.Sscanf(cidStr, "%d", &newCID); n == 1 && e == nil && newCID != tunnel.VayDNS.ClientIDSize {
+				tunnel.VayDNS.ClientIDSize = newCID
+				changed = true
+				out.Success(fmt.Sprintf("Client ID size set to %d", newCID))
+			}
+
+			// Queue size
+			qsStr := ctx.GetArg("queue-size")
+			if qsStr == "" {
+				currentQS := tunnel.VayDNS.QueueSize
+				if currentQS == 0 {
+					currentQS = 512
+				}
+				qsStr, err = prompt.String("Queue size", fmt.Sprintf("%d", currentQS))
+				if err != nil {
+					return err
+				}
+			}
+			var newQS int
+			if n, e := fmt.Sscanf(qsStr, "%d", &newQS); n == 1 && e == nil && newQS != tunnel.VayDNS.QueueSize {
+				tunnel.VayDNS.QueueSize = newQS
+				changed = true
+				out.Success(fmt.Sprintf("Queue size set to %d", newQS))
 			}
 		}
 

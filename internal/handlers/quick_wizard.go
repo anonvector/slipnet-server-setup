@@ -48,6 +48,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 		backends   []string
 		domain     string
 		mtu        int
+		recordType string
 		naiveEmail string
 		naiveDecoy string
 	}
@@ -113,6 +114,18 @@ func handleQuickWizard(ctx *actions.Context) error {
 			}
 		}
 
+		var recordType string
+		if tr == config.TransportVayDNS {
+			rtOpts := make([]actions.SelectOption, len(config.ValidVayDNSRecordTypes))
+			for i, rt := range config.ValidVayDNSRecordTypes {
+				rtOpts[i] = actions.SelectOption{Value: rt, Label: rt}
+			}
+			recordType, err = prompt.Select("DNS record type", rtOpts)
+			if err != nil {
+				return err
+			}
+		}
+
 		var naiveEmail, naiveDecoy string
 		if tr == config.TransportNaive {
 			naiveEmail, err = prompt.String("Email (for Let's Encrypt)", "")
@@ -131,6 +144,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 			backends:   backends,
 			domain:     domain,
 			mtu:        mtu,
+			recordType: recordType,
 			naiveEmail: naiveEmail,
 			naiveDecoy: naiveDecoy,
 		})
@@ -310,6 +324,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 					MTU:        s.mtu,
 					PrivateKey: privKeyPath,
 					PublicKey:  sharedDNSTTKey,
+					RecordType: s.recordType,
 				}
 
 			case config.TransportSlipstream:

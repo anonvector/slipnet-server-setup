@@ -159,6 +159,15 @@ sudo slipgate tunnel add --transport direct-socks5 --tag mysocks
 # Change MTU on a DNSTT tunnel
 sudo slipgate tunnel edit --tag mydnstt --mtu 1232
 
+# Tune VayDNS parameters
+sudo slipgate tunnel edit --tag myvaydns \
+  --mtu 1232 \
+  --record-type txt \
+  --idle-timeout 10s \
+  --keep-alive 2s \
+  --clientid-size 2 \
+  --queue-size 512
+
 # Share tunnel config as slipnet:// URI
 sudo slipgate tunnel share mydnstt
 ```

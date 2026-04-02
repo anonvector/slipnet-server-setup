@@ -199,10 +199,24 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 			return actions.NewError(actions.TunnelAdd, "key setup failed", err)
 		}
 
+		recordType := ctx.GetArg("record-type")
+		if recordType == "" {
+			rtOpts := make([]actions.SelectOption, len(config.ValidVayDNSRecordTypes))
+			for i, rt := range config.ValidVayDNSRecordTypes {
+				rtOpts[i] = actions.SelectOption{Value: rt, Label: rt}
+			}
+			var err error
+			recordType, err = prompt.Select("DNS record type", rtOpts)
+			if err != nil {
+				return err
+			}
+		}
+
 		tunnel.VayDNS = &config.VayDNSConfig{
 			MTU:        config.DefaultMTU,
 			PrivateKey: privKeyPath,
 			PublicKey:  pubKey,
+			RecordType: recordType,
 		}
 		out.Success(fmt.Sprintf("Public key: %s", pubKey))
 

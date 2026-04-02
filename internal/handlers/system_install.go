@@ -260,6 +260,19 @@ func handleSystemInstall(ctx *actions.Context) error {
 
 		var sharedNaive *config.NaiveConfig
 		var sharedDNSTTKey string // reuse same keypair for both backends
+		var sharedRecordType string
+
+		if selectedTransport == config.TransportVayDNS {
+			rtOpts := make([]actions.SelectOption, len(config.ValidVayDNSRecordTypes))
+			for i, rt := range config.ValidVayDNSRecordTypes {
+				rtOpts[i] = actions.SelectOption{Value: rt, Label: rt}
+			}
+			var err error
+			sharedRecordType, err = prompt.Select("DNS record type", rtOpts)
+			if err != nil {
+				return err
+			}
+		}
 
 			for bIdx, b := range backends {
 			tag := selectedTransport
@@ -364,6 +377,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 					MTU:        mtu,
 					PrivateKey: privKeyPath,
 					PublicKey:  sharedDNSTTKey,
+					RecordType: sharedRecordType,
 				}
 
 			case config.TransportSlipstream:
