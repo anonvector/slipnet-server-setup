@@ -119,131 +119,65 @@ type tunnelInfo struct {
 	status    string
 }
 
-// connStat holds per-protocol connection counts.
+// connStat holds connection counts for display.
 type connStat struct {
-	protocol string // transport name (dnstt, slipstream, vaydns, naive, ssh, socks5)
-	ssh      int    // SSH sessions through this protocol
-	socks    int    // SOCKS connections through this protocol
+	label string
+	count int
 }
 
-// connectionStats counts active SSH and SOCKS connections grouped by protocol.
+// connectionStats returns user-facing connection counts.
+//
+// SSH tunnel users: each user holds one TCP connection from a tunnel process
+// to sshd on 127.0.0.1:22 — so count established connections on port 22
+// from localhost (excludes admin sessions from external IPs).
+//
+// SOCKS streams: each TCP destination a user visits creates a separate
+// connection to the SOCKS proxy, so one user = many streams. Shown as
+// "streams" to avoid confusion with user count.
 func connectionStats(cfg *config.Config) []connStat {
 	if cfg == nil {
 		return nil
 	}
 
-	// Count SSH tunnel users (slipgate-ssh group members with active sessions).
-	sshByUser := countSSHByUser()
+	// Parse all established connections once.
+	data, err := exec.Command("ss", "-tn", "state", "established").Output()
+	if err != nil {
+		return nil
+	}
 
-	// Count SOCKS connections per backend port.
-	socksConns := countSOCKSConnections()
-
-	// Map transport → aggregated counts.
-	type counts struct{ ssh, socks int }
-	byProto := make(map[string]*counts)
-
-	for _, t := range cfg.Tunnels {
-		if !t.Enabled {
+	sshUsers := 0
+	socksStreams := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
 			continue
 		}
-		proto := t.Transport
-		if proto == config.TransportDNSTT {
-			proto = "dnstt"
+		local := fields[3]
+		peer := fields[4]
+
+		// SSH tunnel users: localhost → port 22
+		if strings.HasSuffix(local, ":22") && isLocalPeer(peer) {
+			sshUsers++
 		}
-		if byProto[proto] == nil {
-			byProto[proto] = &counts{}
-		}
-		if t.Backend == config.BackendSSH {
-			// SSH tunnel users connect through SSH on port 22.
-			// All tunnel SSH users share the same sshd, so count once per protocol.
-			byProto[proto].ssh = len(sshByUser)
-		}
-		if t.Backend == config.BackendSOCKS {
-			backend := cfg.GetBackend(t.Backend)
-			if backend != nil {
-				byProto[proto].socks = socksConns[backend.Address]
-			}
+		// SOCKS streams: any connection to port 1080
+		if strings.HasSuffix(local, ":1080") {
+			socksStreams++
 		}
 	}
 
 	var stats []connStat
-	for proto, c := range byProto {
-		if c.ssh > 0 || c.socks > 0 {
-			stats = append(stats, connStat{protocol: proto, ssh: c.ssh, socks: c.socks})
-		}
+	if sshUsers > 0 {
+		stats = append(stats, connStat{label: "SSH users", count: sshUsers})
 	}
-	sort.Slice(stats, func(i, j int) bool {
-		return stats[i].protocol < stats[j].protocol
-	})
+	if socksStreams > 0 {
+		stats = append(stats, connStat{label: "SOCKS streams", count: socksStreams})
+	}
 	return stats
 }
 
-// countSSHByUser returns a map of username → session count for slipgate-ssh users.
-func countSSHByUser() map[string]int {
-	result := make(map[string]int)
-
-	// Get slipgate-ssh group members.
-	members := sshGroupMembers()
-	if len(members) == 0 {
-		return result
-	}
-	memberSet := make(map[string]bool, len(members))
-	for _, m := range members {
-		memberSet[m] = true
-	}
-
-	// Parse who output for matching users.
-	data, err := exec.Command("who").Output()
-	if err != nil {
-		return result
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 1 && memberSet[fields[0]] {
-			result[fields[0]]++
-		}
-	}
-	return result
-}
-
-// sshGroupMembers returns usernames in the slipgate-ssh group.
-func sshGroupMembers() []string {
-	data, err := os.ReadFile("/etc/group")
-	if err != nil {
-		return nil
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) == 4 && parts[0] == config.SSHGroup {
-			if parts[3] == "" {
-				return nil
-			}
-			return strings.Split(parts[3], ",")
-		}
-	}
-	return nil
-}
-
-// countSOCKSConnections counts established TCP connections per local address
-// (e.g. "127.0.0.1:1080" → 5) using /proc/net/tcp.
-func countSOCKSConnections() map[string]int {
-	result := make(map[string]int)
-	data, err := exec.Command("ss", "-tn", "state", "established").Output()
-	if err != nil {
-		return result
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 {
-			continue
-		}
-		local := fields[3]
-		// Match known SOCKS backend addresses.
-		if strings.HasSuffix(local, ":1080") {
-			result[local]++
-		}
-	}
-	return result
+// isLocalPeer returns true if the peer address is from localhost.
+func isLocalPeer(addr string) bool {
+	return strings.HasPrefix(addr, "127.0.0.1:") || strings.HasPrefix(addr, "[::1]:")
 }
 
 // activeTunnels returns up to 10 tunnels with their status.
@@ -334,25 +268,14 @@ func drawDashboard(cpuH, ramH, rxH, txH []float64,
 	// SSH sessions.
 	b.WriteString(fmt.Sprintf("  \033[1mSSH Sessions:\033[0m %d\r\n\r\n", sshSessions))
 
-	// Connected users by protocol.
+	// Connections.
 	b.WriteString("  \033[1mConnections\033[0m\r\n")
 	b.WriteString("  ───────────\r\n")
 	if len(connStats) == 0 {
 		b.WriteString("  (no active connections)\r\n")
 	} else {
-		b.WriteString(fmt.Sprintf("  %-15s %6s %7s %7s\r\n",
-			"\033[2mPROTOCOL\033[0m", "\033[2mSSH\033[0m", "\033[2mSOCKS\033[0m", "\033[2mTOTAL\033[0m"))
-		totalSSH, totalSOCKS := 0, 0
 		for _, cs := range connStats {
-			total := cs.ssh + cs.socks
-			b.WriteString(fmt.Sprintf("  %-15s %6d %7d %7d\r\n",
-				cs.protocol, cs.ssh, cs.socks, total))
-			totalSSH += cs.ssh
-			totalSOCKS += cs.socks
-		}
-		if len(connStats) > 1 {
-			b.WriteString(fmt.Sprintf("  \033[2m%-15s %6d %7d %7d\033[0m\r\n",
-				"total", totalSSH, totalSOCKS, totalSSH+totalSOCKS))
+			b.WriteString(fmt.Sprintf("  %-16s %d\r\n", cs.label, cs.count))
 		}
 	}
 	b.WriteString("\r\n")
