@@ -86,6 +86,8 @@ func handleQuickWizard(ctx *actions.Context) error {
 				domainHint = "example.com"
 			} else if tr == config.TransportSlipstream {
 				domainHint = "s.example.com"
+			} else if tr == config.TransportVayDNS {
+				domainHint = "v.example.com"
 			}
 			displayName := tr
 			if tr == config.TransportDNSTT {
@@ -101,7 +103,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 		}
 
 		mtu := config.DefaultMTU
-		if tr == config.TransportDNSTT {
+		if tr == config.TransportDNSTT || tr == config.TransportVayDNS {
 			mtuStr, err := prompt.String("MTU", fmt.Sprintf("%d", config.DefaultMTU))
 			if err != nil {
 				return err
@@ -179,7 +181,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 	// Firewall
 	for _, s := range allSettings {
 		switch s.transport {
-		case config.TransportDNSTT, config.TransportSlipstream:
+		case config.TransportDNSTT, config.TransportSlipstream, config.TransportVayDNS:
 			_ = network.AllowPort(53, "udp")
 			_ = network.DisableResolvedStub()
 		case config.TransportNaive:
@@ -192,10 +194,13 @@ func handleQuickWizard(ctx *actions.Context) error {
 		}
 	}
 
-	// Write default config
-	cfg := config.Default()
-	if err := cfg.Save(); err != nil {
-		return actions.NewError(actions.QuickWizard, "failed to write config", err)
+	// Load existing config or create defaults for fresh install
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.Default()
+		if err := cfg.Save(); err != nil {
+			return actions.NewError(actions.QuickWizard, "failed to write config", err)
+		}
 	}
 
 	// ── Create tunnels ─────────────────────────────────────────
@@ -215,6 +220,8 @@ func handleQuickWizard(ctx *actions.Context) error {
 					sshHint := "ts." + parentDomain
 					if s.transport == config.TransportSlipstream {
 						sshHint = "ss." + parentDomain
+					} else if s.transport == config.TransportVayDNS {
+						sshHint = "vs." + parentDomain
 					}
 					tunnelDomain, err = prompt.String(fmt.Sprintf("Domain for %s", tag), sshHint)
 					if err != nil {
@@ -273,6 +280,33 @@ func handleQuickWizard(ctx *actions.Context) error {
 					}
 				}
 				tunnel.DNSTT = &config.DNSTTConfig{
+					MTU:        s.mtu,
+					PrivateKey: privKeyPath,
+					PublicKey:  sharedDNSTTKey,
+				}
+
+			case config.TransportVayDNS:
+				privKeyPath := filepath.Join(tunnelDir, "server.key")
+				pubKeyPath := filepath.Join(tunnelDir, "server.pub")
+
+				if sharedDNSTTKey == "" {
+					out.Info(fmt.Sprintf("Generating keypair for %s...", tunnelDomain))
+					pubKey, err := keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)
+					if err != nil {
+						return actions.NewError(actions.QuickWizard, "key generation failed", err)
+					}
+					sharedDNSTTKey = pubKey
+					out.Success(fmt.Sprintf("Public key: %s", pubKey))
+				} else {
+					srcDir := config.TunnelDir(allTunnels[len(allTunnels)-1].Tag)
+					if err := copyFile(filepath.Join(srcDir, "server.key"), privKeyPath); err != nil {
+						return actions.NewError(actions.QuickWizard, "failed to copy private key", err)
+					}
+					if err := copyFile(filepath.Join(srcDir, "server.pub"), pubKeyPath); err != nil {
+						return actions.NewError(actions.QuickWizard, "failed to copy public key", err)
+					}
+				}
+				tunnel.VayDNS = &config.VayDNSConfig{
 					MTU:        s.mtu,
 					PrivateKey: privKeyPath,
 					PublicKey:  sharedDNSTTKey,
@@ -405,6 +439,9 @@ func handleQuickWizard(ctx *actions.Context) error {
 	if allTunnels[0].DNSTT != nil {
 		out.Print(fmt.Sprintf("    PubKey : %s", allTunnels[0].DNSTT.PublicKey))
 		out.Print(fmt.Sprintf("    MTU    : %d", allTunnels[0].DNSTT.MTU))
+	} else if allTunnels[0].VayDNS != nil {
+		out.Print(fmt.Sprintf("    PubKey : %s", allTunnels[0].VayDNS.PublicKey))
+		out.Print(fmt.Sprintf("    MTU    : %d", allTunnels[0].VayDNS.MTU))
 	}
 
 	// DNS records

@@ -61,5 +61,6 @@ const DefaultMTU = 1232
 var TransportBinaries = map[string]string{
 	TransportDNSTT:      "dnstt-server",
 	TransportSlipstream: "slipstream-server",
+	TransportVayDNS:     "vaydns-server",
 	TransportNaive:      "caddy-naive",
 }

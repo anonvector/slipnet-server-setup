@@ -102,6 +102,57 @@ func handleTunnelEdit(ctx *actions.Context) error {
 			}
 		}
 
+	case config.TransportVayDNS:
+		if tunnel.VayDNS != nil {
+			// MTU
+			mtuStr := ctx.GetArg("mtu")
+			if mtuStr == "" {
+				var err error
+				mtuStr, err = prompt.String("MTU", fmt.Sprintf("%d", tunnel.VayDNS.MTU))
+				if err != nil {
+					return err
+				}
+			}
+			var newMTU int
+			if n, err := fmt.Sscanf(mtuStr, "%d", &newMTU); n == 1 && err == nil && newMTU != tunnel.VayDNS.MTU {
+				tunnel.VayDNS.MTU = newMTU
+				changed = true
+				out.Success(fmt.Sprintf("MTU set to %d", newMTU))
+			}
+
+			// Private key
+			privKeyHex := ctx.GetArg("private-key")
+			if privKeyHex == "" {
+				var err error
+				privKeyHex, err = prompt.String("Private key (hex, blank to keep)", "")
+				if err != nil {
+					return err
+				}
+			}
+			if privKeyHex != "" {
+				tunnelDir := config.TunnelDir(tag)
+				privKeyPath := filepath.Join(tunnelDir, "server.key")
+				pubKeyPath := filepath.Join(tunnelDir, "server.pub")
+
+				pubKeyHex := ctx.GetArg("public-key")
+				var pubKey string
+				var err error
+				if pubKeyHex != "" {
+					pubKey, err = keys.ImportDNSTTKeyPair(privKeyHex, pubKeyHex, privKeyPath, pubKeyPath)
+				} else {
+					pubKey, err = keys.ImportDNSTTKeys(privKeyHex, privKeyPath, pubKeyPath)
+				}
+				if err != nil {
+					out.Warning("Failed to import key: " + err.Error())
+				} else {
+					tunnel.VayDNS.PrivateKey = privKeyPath
+					tunnel.VayDNS.PublicKey = pubKey
+					changed = true
+					out.Success(fmt.Sprintf("Public key: %s", pubKey))
+				}
+			}
+		}
+
 	case config.TransportNaive:
 		if tunnel.Naive != nil {
 			// Email

@@ -14,6 +14,8 @@ func CreateService(tunnel *config.TunnelConfig, cfg *config.Config) error {
 		return createDNSTTService(tunnel, cfg)
 	case config.TransportSlipstream:
 		return createSlipstreamService(tunnel, cfg)
+	case config.TransportVayDNS:
+		return createVayDNSService(tunnel, cfg)
 	case config.TransportNaive:
 		return createNaiveService(tunnel, cfg)
 	case config.TransportSSH, config.TransportSOCKS:

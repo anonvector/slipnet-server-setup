@@ -82,6 +82,8 @@ func handleTunnelAdd(ctx *actions.Context) error {
 				sshHint := "ts." + parentDomain
 				if transport_ == config.TransportSlipstream {
 					sshHint = "ss." + parentDomain
+				} else if transport_ == config.TransportVayDNS {
+					sshHint = "vs." + parentDomain
 				}
 				sshDomain, err := prompt.String(fmt.Sprintf("Domain for %s", tunnelTag), sshHint)
 				if err != nil {
@@ -171,6 +173,38 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 			Cert: certPath,
 			Key:  keyPath,
 		}
+
+	case config.TransportVayDNS:
+		privKeyPath := filepath.Join(tunnelDir, "server.key")
+		pubKeyPath := filepath.Join(tunnelDir, "server.pub")
+
+		privKeyHex := ctx.GetArg("private-key")
+		pubKeyHex := ctx.GetArg("public-key")
+
+		var pubKey string
+		var err error
+
+		switch {
+		case privKeyHex != "" && pubKeyHex != "":
+			out.Info("Importing provided keypair...")
+			pubKey, err = keys.ImportDNSTTKeyPair(privKeyHex, pubKeyHex, privKeyPath, pubKeyPath)
+		case privKeyHex != "":
+			out.Info("Importing private key and deriving public key...")
+			pubKey, err = keys.ImportDNSTTKeys(privKeyHex, privKeyPath, pubKeyPath)
+		default:
+			out.Info("Generating Curve25519 keypair...")
+			pubKey, err = keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)
+		}
+		if err != nil {
+			return actions.NewError(actions.TunnelAdd, "key setup failed", err)
+		}
+
+		tunnel.VayDNS = &config.VayDNSConfig{
+			MTU:        config.DefaultMTU,
+			PrivateKey: privKeyPath,
+			PublicKey:  pubKey,
+		}
+		out.Success(fmt.Sprintf("Public key: %s", pubKey))
 
 	case config.TransportNaive:
 		email := ctx.GetArg("email")

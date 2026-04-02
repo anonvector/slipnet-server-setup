@@ -88,7 +88,7 @@ func validateTag(tag string) error {
 
 func validateTransport(transport string) error {
 	switch transport {
-	case TransportDNSTT, TransportSlipstream, TransportNaive, TransportSSH, TransportSOCKS:
+	case TransportDNSTT, TransportSlipstream, TransportVayDNS, TransportNaive, TransportSSH, TransportSOCKS:
 		return nil
 	}
 	return fmt.Errorf("unknown transport: %s", transport)

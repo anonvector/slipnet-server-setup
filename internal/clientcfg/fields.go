@@ -73,6 +73,12 @@ var TunnelTypeMap = map[string]map[string]map[string]string{
 			config.BackendSSH:   "slipstream_ssh",
 		},
 	},
+	config.TransportVayDNS: {
+		"": {
+			config.BackendSOCKS: "vaydns",
+			config.BackendSSH:   "vaydns_ssh",
+		},
+	},
 	config.TransportNaive: {
 		"": {
 			config.BackendSOCKS: "naive",

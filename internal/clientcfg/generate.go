@@ -75,6 +75,11 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 			fields[FPublicKey] = tunnel.DNSTT.PublicKey
 		}
 
+	case config.TransportVayDNS:
+		if tunnel.VayDNS != nil {
+			fields[FPublicKey] = tunnel.VayDNS.PublicKey
+		}
+
 	case config.TransportSlipstream:
 		// No pubkey field needed
 
