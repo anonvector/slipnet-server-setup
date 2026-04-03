@@ -224,11 +224,11 @@ func handleQuickWizard(ctx *actions.Context) error {
 
 	for _, s := range allSettings {
 		for _, b := range s.backends {
-			tag := s.transport
+			tag := cfg.UniqueTag(s.transport)
 			tunnelDomain := s.domain
 
 			if s.backend == "both" {
-				tag = s.transport + "-" + b
+				tag = cfg.UniqueTag(s.transport + "-" + b)
 				if b == config.BackendSSH && s.transport != config.TransportNaive {
 					parentDomain := baseDomain(s.domain)
 					sshHint := "ts." + parentDomain

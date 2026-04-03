@@ -83,6 +83,7 @@ func init() {
 		Category: "tunnel",
 		Inputs: []InputField{
 			{Key: "tag", Label: "Tunnel tag", Required: true},
+			{Key: "new-tag", Label: "New tag name"},
 			{Key: "domain", Label: "Domain"},
 			{Key: "mtu", Label: "MTU"},
 			{Key: "private-key", Label: "Private key (hex)"},

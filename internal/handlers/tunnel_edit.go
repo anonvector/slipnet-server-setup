@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/anonvector/slipgate/internal/actions"
@@ -31,6 +32,59 @@ func handleTunnelEdit(ctx *actions.Context) error {
 	// Show current settings
 	out.Print(fmt.Sprintf("  Editing tunnel %q (%s/%s)", tag, tunnel.Transport, tunnel.Backend))
 	out.Print(fmt.Sprintf("  Press Enter to keep current value\n"))
+
+	// Tag rename
+	newTag := ctx.GetArg("new-tag")
+	if newTag == "" {
+		var err error
+		newTag, err = prompt.String("Tag", tag)
+		if err != nil {
+			return err
+		}
+	}
+	if newTag != tag {
+		if err := config.ValidateTagName(newTag); err != nil {
+			return actions.NewError(actions.TunnelEdit, "invalid tag name", err)
+		}
+		if cfg.GetTunnel(newTag) != nil {
+			return actions.NewError(actions.TunnelEdit, fmt.Sprintf("tag %q already exists", newTag), nil)
+		}
+
+		// Rename tunnel directory
+		oldDir := config.TunnelDir(tag)
+		newDir := config.TunnelDir(newTag)
+		if _, err := os.Stat(oldDir); err == nil {
+			if err := os.Rename(oldDir, newDir); err != nil {
+				return actions.NewError(actions.TunnelEdit, "failed to rename tunnel directory", err)
+			}
+		}
+
+		// Update key file paths
+		if tunnel.DNSTT != nil {
+			tunnel.DNSTT.PrivateKey = filepath.Join(newDir, "server.key")
+		}
+		if tunnel.VayDNS != nil {
+			tunnel.VayDNS.PrivateKey = filepath.Join(newDir, "server.key")
+		}
+
+		// Stop old systemd service
+		oldSvcName := service.TunnelServiceName(tag)
+		_ = service.Stop(oldSvcName)
+		_ = service.Remove(oldSvcName)
+
+		// Update route references
+		if cfg.Route.Active == tag {
+			cfg.Route.Active = newTag
+		}
+		if cfg.Route.Default == tag {
+			cfg.Route.Default = newTag
+		}
+
+		tunnel.Tag = newTag
+		tag = newTag
+		changed = true
+		out.Success(fmt.Sprintf("Tag renamed to %q", newTag))
+	}
 
 	// Domain (non-direct transports)
 	if !tunnel.IsDirectTransport() {

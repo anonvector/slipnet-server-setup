@@ -76,6 +76,11 @@ func (c *Config) ValidateNewTunnel(t *TunnelConfig) error {
 	return validateTransportBackend(t.Transport, t.Backend)
 }
 
+// ValidateTagName checks if a tag name is valid.
+func ValidateTagName(tag string) error {
+	return validateTag(tag)
+}
+
 func validateTag(tag string) error {
 	if tag == "" {
 		return fmt.Errorf("tag is required")

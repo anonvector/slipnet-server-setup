@@ -189,7 +189,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 				implicitBackend = config.BackendSOCKS
 			}
 
-			tag := selectedTransport
+			tag := cfg.UniqueTag(selectedTransport)
 			tunnel := config.TunnelConfig{
 				Tag:       tag,
 				Transport: selectedTransport,
@@ -275,10 +275,10 @@ func handleSystemInstall(ctx *actions.Context) error {
 		}
 
 			for bIdx, b := range backends {
-			tag := selectedTransport
+			tag := cfg.UniqueTag(selectedTransport)
 			tunnelDomain := domain
 			if backend == "both" {
-				tag = selectedTransport + "-" + b
+				tag = cfg.UniqueTag(selectedTransport + "-" + b)
 				// SSH backend needs its own subdomain (separate dnstt/slipstream instance)
 				if b == config.BackendSSH && selectedTransport != config.TransportNaive {
 					parentDomain := baseDomain(domain)

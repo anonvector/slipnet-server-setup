@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -121,6 +122,20 @@ func (c *Config) GetTunnel(tag string) *TunnelConfig {
 		}
 	}
 	return nil
+}
+
+// UniqueTag returns a tag that doesn't conflict with existing tunnels.
+// If base is available it is returned as-is, otherwise a numeric suffix is appended.
+func (c *Config) UniqueTag(base string) string {
+	if c.GetTunnel(base) == nil {
+		return base
+	}
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if c.GetTunnel(candidate) == nil {
+			return candidate
+		}
+	}
 }
 
 // AddTunnel adds a tunnel to the config.

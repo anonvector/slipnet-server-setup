@@ -79,7 +79,7 @@ slipgate stats                  # Live dashboard (CPU, RAM, traffic, connections
 
 # Tunnel management
 slipgate tunnel add             # Add tunnel(s) — supports multi-select and "both" backend
-slipgate tunnel edit [tag]      # Edit tunnel settings (MTU, keys)
+slipgate tunnel edit [tag]      # Edit tunnel settings (tag, MTU, keys)
 slipgate tunnel remove [tag]    # Remove a tunnel
 slipgate tunnel start [tag]     # Start a tunnel
 slipgate tunnel stop [tag]      # Stop a tunnel
@@ -167,6 +167,9 @@ sudo slipgate tunnel add \
 # Direct SSH / SOCKS5 transports
 sudo slipgate tunnel add --transport direct-ssh --tag myssh
 sudo slipgate tunnel add --transport direct-socks5 --tag mysocks
+
+# Rename a tunnel
+sudo slipgate tunnel edit --tag mydnstt --new-tag my-tunnel
 
 # Change MTU on a DNSTT tunnel
 sudo slipgate tunnel edit --tag mydnstt --mtu 1232
