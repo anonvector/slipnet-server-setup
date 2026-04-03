@@ -3,12 +3,10 @@ package warp
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -18,9 +16,7 @@ import (
 const (
 	WarpDir     = "/etc/slipgate/warp"
 	WarpConf    = "/etc/slipgate/warp/wg0.conf"
-	AccountFile = "/etc/slipgate/warp/wgcf-account.toml"
-	ProfileFile = "/etc/slipgate/warp/wgcf-profile.conf"
-	WgcfBin     = "/usr/local/bin/wgcf"
+	ProfileFile = "/etc/slipgate/warp/wgcf-profile.conf" // legacy wgcf profile
 	ServiceName = "slipgate-warp"
 	RouteTable  = 200
 
@@ -33,8 +29,6 @@ const (
 	// process so its forward-proxy traffic can be routed through WARP.
 	NaiveUser = "slipgate-naive"
 )
-
-const wgcfVersion = "2.2.22"
 
 var httpClient = &http.Client{Timeout: 120 * time.Second}
 
@@ -53,30 +47,25 @@ func Setup(cfg *config.Config, log func(string)) error {
 		return fmt.Errorf("install wireguard-tools: %w", err)
 	}
 
-	if _, err := os.Stat(WgcfBin); os.IsNotExist(err) {
-		log("Downloading wgcf...")
-		if err := downloadWgcf(); err != nil {
-			return fmt.Errorf("download wgcf: %w", err)
+	// Load or create WARP account
+	account, err := LoadAccount()
+	if err != nil {
+		// Try migrating from legacy wgcf files
+		if _, statErr := os.Stat(ProfileFile); statErr == nil {
+			log("Migrating from wgcf profile...")
+			account, err = migrateFromWgcf()
+			if err != nil {
+				return fmt.Errorf("migrate wgcf: %w", err)
+			}
+		} else {
+			log("Registering WARP account...")
+			account, err = registerWARP()
+			if err != nil {
+				return fmt.Errorf("register WARP: %w", err)
+			}
 		}
-	}
-
-	// Register WARP account
-	if _, err := os.Stat(AccountFile); os.IsNotExist(err) {
-		log("Registering WARP account...")
-		cmd := exec.Command(WgcfBin, "register", "--accept-tos")
-		cmd.Dir = WarpDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("wgcf register: %w\n%s", err, string(out))
-		}
-	}
-
-	// Generate WireGuard profile
-	if _, err := os.Stat(ProfileFile); os.IsNotExist(err) {
-		log("Generating WireGuard profile...")
-		cmd := exec.Command(WgcfBin, "generate")
-		cmd.Dir = WarpDir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("wgcf generate: %w\n%s", err, string(out))
+		if err := SaveAccount(account); err != nil {
+			return fmt.Errorf("save account: %w", err)
 		}
 	}
 
@@ -143,12 +132,13 @@ func RefreshRouting(cfg *config.Config) error {
 	return nil
 }
 
-// Uninstall removes all WARP configuration, services, and the wgcf binary.
+// Uninstall removes all WARP configuration and services.
 func Uninstall() {
 	_ = Disable()
 	_ = removeService()
 	_ = os.RemoveAll(WarpDir)
-	_ = os.Remove(WgcfBin)
+	// Clean up legacy wgcf binary if present
+	_ = os.Remove("/usr/local/bin/wgcf")
 }
 
 // RemoveUsers removes the dedicated SOCKS and NaiveProxy system users
@@ -158,12 +148,17 @@ func RemoveUsers() {
 	_ = tryRun("userdel", NaiveUser)
 }
 
-// generateWgConf parses the wgcf profile and writes a custom wg0.conf
+// generateWgConf reads the WARP account and writes a custom wg0.conf
 // with policy-routing rules for managed SSH users.
 func generateWgConf(cfg *config.Config) error {
-	profile, err := parseWgProfile(ProfileFile)
+	account, err := LoadAccount()
 	if err != nil {
-		return err
+		// Auto-migrate from legacy wgcf files if present
+		account, err = migrateFromWgcf()
+		if err != nil {
+			return fmt.Errorf("load account: no account.json and no wgcf profile to migrate from")
+		}
+		_ = SaveAccount(account)
 	}
 
 	uids := collectUserUIDs(cfg)
@@ -179,8 +174,8 @@ func generateWgConf(cfg *config.Config) error {
 
 	var conf strings.Builder
 	conf.WriteString("[Interface]\n")
-	conf.WriteString(fmt.Sprintf("PrivateKey = %s\n", profile.privateKey))
-	for _, addr := range profile.addresses {
+	conf.WriteString(fmt.Sprintf("PrivateKey = %s\n", account.PrivateKey))
+	for _, addr := range account.Addresses {
 		conf.WriteString(fmt.Sprintf("Address = %s\n", addr))
 	}
 	conf.WriteString("MTU = 1280\n")
@@ -193,8 +188,8 @@ func generateWgConf(cfg *config.Config) error {
 	}
 
 	conf.WriteString("\n[Peer]\n")
-	conf.WriteString(fmt.Sprintf("PublicKey = %s\n", profile.publicKey))
-	conf.WriteString(fmt.Sprintf("Endpoint = %s\n", profile.endpoint))
+	conf.WriteString(fmt.Sprintf("PublicKey = %s\n", account.PeerKey))
+	conf.WriteString(fmt.Sprintf("Endpoint = %s\n", account.Endpoint))
 	conf.WriteString("AllowedIPs = 0.0.0.0/0, ::/0\n")
 	conf.WriteString("PersistentKeepalive = 25\n")
 
@@ -382,40 +377,6 @@ func ensureWireGuardTools() error {
 	return fmt.Errorf("please install wireguard-tools manually")
 }
 
-func downloadWgcf() error {
-	arch := runtime.GOARCH
-	url := fmt.Sprintf(
-		"https://github.com/ViRb3/wgcf/releases/download/v%s/wgcf_%s_linux_%s",
-		wgcfVersion, wgcfVersion, arch,
-	)
-
-	resp, err := httpClient.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
-	}
-
-	tmp := WgcfBin + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
-	}
-	f.Close()
-
-	if err := os.Rename(tmp, WgcfBin); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return nil
-}
 
 func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
