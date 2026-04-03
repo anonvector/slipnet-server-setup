@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/anonvector/slipgate/internal/actions"
 	"github.com/anonvector/slipgate/internal/certs"
@@ -70,6 +71,8 @@ func handleTunnelAdd(ctx *actions.Context) error {
 		backends = []string{config.BackendSOCKS, config.BackendSSH}
 	}
 
+	var failed, succeeded []string
+	var sharedKeyDir string
 	for _, b := range backends {
 		tunnelTag := tag
 		tunnelDomain := domain
@@ -93,15 +96,31 @@ func handleTunnelAdd(ctx *actions.Context) error {
 			}
 		}
 
-		if err := addSingleTunnel(ctx, cfg, transport_, b, tunnelTag, tunnelDomain); err != nil {
+		if err := addSingleTunnel(ctx, cfg, transport_, b, tunnelTag, tunnelDomain, sharedKeyDir); err != nil {
 			out.Warning(fmt.Sprintf("Failed to add %s: %v", tunnelTag, err))
+			failed = append(failed, tunnelTag)
+		} else {
+			succeeded = append(succeeded, tunnelTag)
+			if sharedKeyDir == "" {
+				sharedKeyDir = config.TunnelDir(tunnelTag)
+			}
 		}
+	}
+
+	// Final summary
+	out.Print("")
+	if len(failed) == 0 {
+		out.Success(fmt.Sprintf("All %d tunnel(s) added successfully", len(succeeded)))
+	} else if len(succeeded) == 0 {
+		return actions.NewError(actions.TunnelAdd, fmt.Sprintf("all %d tunnel(s) failed to add", len(failed)), nil)
+	} else {
+		out.Warning(fmt.Sprintf("%d succeeded, %d failed", len(succeeded), len(failed)))
 	}
 
 	return nil
 }
 
-func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backend, tag, domain string) error {
+func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backend, tag, domain, sharedKeyDir string) error {
 	out := ctx.Output
 
 	tunnel := config.TunnelConfig{
@@ -147,6 +166,19 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 		case privKeyHex != "":
 			out.Info("Importing private key and deriving public key...")
 			pubKey, err = keys.ImportDNSTTKeys(privKeyHex, privKeyPath, pubKeyPath)
+		case sharedKeyDir != "":
+			out.Info("Reusing shared keypair...")
+			if err := copyFile(filepath.Join(sharedKeyDir, "server.key"), privKeyPath); err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to copy shared private key", err)
+			}
+			if err := copyFile(filepath.Join(sharedKeyDir, "server.pub"), pubKeyPath); err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to copy shared public key", err)
+			}
+			pubBytes, err := os.ReadFile(pubKeyPath)
+			if err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to read shared public key", err)
+			}
+			pubKey = strings.TrimSpace(string(pubBytes))
 		default:
 			out.Info("Generating Curve25519 keypair...")
 			pubKey, err = keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)
@@ -191,6 +223,19 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 		case privKeyHex != "":
 			out.Info("Importing private key and deriving public key...")
 			pubKey, err = keys.ImportDNSTTKeys(privKeyHex, privKeyPath, pubKeyPath)
+		case sharedKeyDir != "":
+			out.Info("Reusing shared keypair...")
+			if err := copyFile(filepath.Join(sharedKeyDir, "server.key"), privKeyPath); err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to copy shared private key", err)
+			}
+			if err := copyFile(filepath.Join(sharedKeyDir, "server.pub"), pubKeyPath); err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to copy shared public key", err)
+			}
+			pubBytes, err := os.ReadFile(pubKeyPath)
+			if err != nil {
+				return actions.NewError(actions.TunnelAdd, "failed to read shared public key", err)
+			}
+			pubKey = strings.TrimSpace(string(pubBytes))
 		default:
 			out.Info("Generating Curve25519 keypair...")
 			pubKey, err = keys.GenerateDNSTTKeys(privKeyPath, pubKeyPath)

@@ -625,6 +625,9 @@ func handleSystemInstall(ctx *actions.Context) error {
 	if len(allTunnels) > 0 && allTunnels[0].DNSTT != nil {
 		out.Print(fmt.Sprintf("    Public Key: %s", allTunnels[0].DNSTT.PublicKey))
 		out.Print(fmt.Sprintf("    MTU       : %d", allTunnels[0].DNSTT.MTU))
+	} else if len(allTunnels) > 0 && allTunnels[0].VayDNS != nil {
+		out.Print(fmt.Sprintf("    Public Key: %s", allTunnels[0].VayDNS.PublicKey))
+		out.Print(fmt.Sprintf("    MTU       : %d", allTunnels[0].VayDNS.MTU))
 	}
 
 	out.Print("")

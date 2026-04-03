@@ -62,12 +62,21 @@ func handleSystemUpdate(ctx *actions.Context) error {
 
 		out.Info(fmt.Sprintf("  Updating %s...", name))
 
-		// Remove old binary and re-download
-		os.Remove(binPath)
-		if err := binary.EnsureInstalled(name); err != nil {
-			out.Warning(fmt.Sprintf("  Failed to update %s: %v", name, err))
+		// Backup old binary before replacing so we can restore on failure
+		backupPath := binPath + ".bak"
+		if err := os.Rename(binPath, backupPath); err != nil {
+			out.Warning(fmt.Sprintf("  Failed to backup %s: %v", name, err))
 			continue
 		}
+		if err := binary.EnsureInstalled(name); err != nil {
+			// Restore from backup
+			if restoreErr := os.Rename(backupPath, binPath); restoreErr != nil {
+				out.Warning(fmt.Sprintf("  Failed to restore %s backup: %v", name, restoreErr))
+			}
+			out.Warning(fmt.Sprintf("  Failed to update %s: %v (kept old version)", name, err))
+			continue
+		}
+		os.Remove(backupPath)
 		out.Success(fmt.Sprintf("  %s updated", name))
 	}
 
@@ -140,18 +149,7 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		}
 	}
 
-	// Restart infrastructure services first (DNS router needs port 53 before tunnels)
-	for _, svc := range []string{"slipgate-dnsrouter", "slipgate-socks5"} {
-		if service.Exists(svc) {
-			if err := service.Restart(svc); err != nil {
-				out.Warning(fmt.Sprintf("Failed to restart %s: %v", svc, err))
-			} else {
-				out.Success(fmt.Sprintf("  %s restarted", svc))
-			}
-		}
-	}
-
-	// Then regenerate and restart tunnel services
+	// Regenerate and restart tunnel services first
 	for i := range cfg.Tunnels {
 		t := &cfg.Tunnels[i]
 		if t.IsDirectTransport() {
@@ -171,6 +169,18 @@ func handleSystemUpdate(ctx *actions.Context) error {
 			out.Success(fmt.Sprintf("  %s regenerated and restarted", svcName))
 		} else {
 			out.Success(fmt.Sprintf("  %s regenerated", svcName))
+		}
+	}
+
+	// Restart infrastructure services last so tunnels are ready when
+	// the DNS router and SOCKS5 proxy come back up
+	for _, svc := range []string{"slipgate-socks5", "slipgate-dnsrouter"} {
+		if service.Exists(svc) {
+			if err := service.Restart(svc); err != nil {
+				out.Warning(fmt.Sprintf("Failed to restart %s: %v", svc, err))
+			} else {
+				out.Success(fmt.Sprintf("  %s restarted", svc))
+			}
 		}
 	}
 
