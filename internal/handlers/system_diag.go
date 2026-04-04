@@ -220,11 +220,29 @@ func handleSystemDiag(ctx *actions.Context) error {
 			out.Print("  ──────────────")
 			domainsChecked = true
 		}
-		addrs, err := net.LookupHost(t.Domain)
-		if err != nil {
-			check(fmt.Sprintf("[%s] %s", t.Tag, t.Domain), false, "not resolving")
+		if t.IsDNSTunnel() {
+			// DNS tunnels use NS records, not A records
+			nss, err := net.LookupNS(t.Domain)
+			if err != nil || len(nss) == 0 {
+				check(fmt.Sprintf("[%s] %s NS", t.Tag, t.Domain), false, "NS record not found")
+			} else {
+				nsHost := nss[0].Host
+				check(fmt.Sprintf("[%s] %s NS", t.Tag, t.Domain), true, nsHost)
+				// Verify the nameserver resolves to an IP
+				addrs, err := net.LookupHost(strings.TrimSuffix(nsHost, "."))
+				if err != nil {
+					check(fmt.Sprintf("[%s] %s A", t.Tag, strings.TrimSuffix(nsHost, ".")), false, "not resolving")
+				} else {
+					check(fmt.Sprintf("[%s] %s A", t.Tag, strings.TrimSuffix(nsHost, ".")), true, strings.Join(addrs, ", "))
+				}
+			}
 		} else {
-			check(fmt.Sprintf("[%s] %s", t.Tag, t.Domain), true, strings.Join(addrs, ", "))
+			addrs, err := net.LookupHost(t.Domain)
+			if err != nil {
+				check(fmt.Sprintf("[%s] %s", t.Tag, t.Domain), false, "not resolving")
+			} else {
+				check(fmt.Sprintf("[%s] %s", t.Tag, t.Domain), true, strings.Join(addrs, ", "))
+			}
 		}
 	}
 
