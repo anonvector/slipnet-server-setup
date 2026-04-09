@@ -454,8 +454,8 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 		}
 	}
 
-	// Create and start systemd service (skip for external — user manages their own)
-	if tunnel.HasManagedService() {
+	// Create and start systemd service (skip message for external — user manages their own)
+	if transport_ != config.TransportExternal {
 		out.Info("Creating systemd service...")
 	}
 	if err := transport.CreateService(&tunnel, cfg); err != nil {
