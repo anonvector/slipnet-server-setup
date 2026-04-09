@@ -6,8 +6,10 @@ const (
 	TransportSlipstream = "slipstream"
 	TransportVayDNS     = "vaydns"
 	TransportNaive      = "naive"
+	TransportStunTLS    = "stuntls"
 	TransportSSH        = "direct-ssh"
 	TransportSOCKS      = "direct-socks5"
+	TransportExternal   = "external"
 )
 
 // TunnelConfig defines a single tunnel.
@@ -24,6 +26,7 @@ type TunnelConfig struct {
 	Slipstream *SlipstreamConfig `json:"slipstream,omitempty"`
 	VayDNS     *VayDNSConfig     `json:"vaydns,omitempty"`
 	Naive      *NaiveConfig      `json:"naive,omitempty"`
+	StunTLS    *StunTLSConfig    `json:"stuntls,omitempty"`
 }
 
 // DNSTTConfig holds config for DNSTT transport (serves both DNSTT and NoizDNS clients).
@@ -109,13 +112,27 @@ func (v *VayDNSConfig) ResolvedClientIDSize() int {
 	return v.ClientIDSize
 }
 
+// StunTLSConfig holds config for the TLS + WebSocket SSH proxy transport.
+// Accepts both raw TLS connections (stunnel-style) and WebSocket upgrades,
+// forwarding traffic to the SSH daemon.
+type StunTLSConfig struct {
+	Cert string `json:"cert"` // path to TLS certificate
+	Key  string `json:"key"`  // path to TLS private key
+	Port int    `json:"port"` // listen port (typically 443)
+}
+
 // IsDNSTunnel returns true if the transport uses DNS port 53.
 func (t *TunnelConfig) IsDNSTunnel() bool {
 	switch t.Transport {
-	case TransportDNSTT, TransportSlipstream, TransportVayDNS:
+	case TransportDNSTT, TransportSlipstream, TransportVayDNS, TransportExternal:
 		return true
 	}
 	return false
+}
+
+// HasManagedService returns true if slipgate manages a systemd service for this tunnel.
+func (t *TunnelConfig) HasManagedService() bool {
+	return t.IsDNSTunnel() && t.Transport != TransportExternal
 }
 
 // IsDirectTransport returns true for transports that expose a service directly (no tunnel).

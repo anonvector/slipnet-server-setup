@@ -127,6 +127,11 @@ func showTunnelDetail(out actions.OutputWriter, tunnel *config.TunnelConfig) {
 			out.Print(fmt.Sprintf("  Email     : %s", tunnel.Naive.Email))
 			out.Print(fmt.Sprintf("  Decoy URL : %s", tunnel.Naive.DecoyURL))
 		}
+	case config.TransportStunTLS:
+		if tunnel.StunTLS != nil {
+			out.Print(fmt.Sprintf("  TLS Port  : %d", tunnel.StunTLS.Port))
+			out.Print(fmt.Sprintf("  Cert      : %s", tunnel.StunTLS.Cert))
+		}
 	}
 }
 

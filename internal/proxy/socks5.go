@@ -1,29 +1,53 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
 // Server is a SOCKS5 proxy server supporting CONNECT with optional auth.
 type Server struct {
-	listenAddr string
-	username   string
-	password   string
+	listenAddr  string
+	credentials map[string]string // username → password (empty map = no auth)
 }
 
-// NewServer creates a SOCKS5 server.
+// NewServer creates a SOCKS5 server with a single credential pair.
+// For multiple users, use NewServerMulti.
 func NewServer(addr string, user, pass string) *Server {
-	return &Server{listenAddr: addr, username: user, password: pass}
+	creds := make(map[string]string)
+	if user != "" {
+		creds[user] = pass
+	}
+	return &Server{listenAddr: addr, credentials: creds}
+}
+
+// NewServerMulti creates a SOCKS5 server with multiple credential pairs.
+func NewServerMulti(addr string, creds map[string]string) *Server {
+	if creds == nil {
+		creds = make(map[string]string)
+	}
+	return &Server{listenAddr: addr, credentials: creds}
 }
 
 // ListenAndServe starts the SOCKS5 server (blocking).
 func (s *Server) ListenAndServe() error {
-	ln, err := net.Listen("tcp", s.listenAddr)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+		},
+	}
+
+	ln, err := lc.Listen(context.Background(), "tcp", s.listenAddr)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
@@ -31,9 +55,25 @@ func (s *Server) ListenAndServe() error {
 
 	log.Printf("SOCKS5 proxy listening on %s", s.listenAddr)
 
+	// Graceful shutdown on SIGTERM/SIGINT
+	done := make(chan struct{})
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sig
+		log.Println("shutting down SOCKS5 proxy")
+		close(done)
+		ln.Close()
+	}()
+
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			select {
+			case <-done:
+				return nil
+			default:
+			}
 			log.Printf("accept: %v", err)
 			continue
 		}
@@ -57,7 +97,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	if s.username != "" {
+	if len(s.credentials) > 0 {
 		// Require username/password auth (method 0x02)
 		conn.Write([]byte{0x05, 0x02})
 		if !s.authenticate(conn) {
@@ -174,7 +214,7 @@ func (s *Server) authenticate(conn net.Conn) bool {
 	}
 	pass := string(buf[:plen])
 
-	if user == s.username && pass == s.password {
+	if expected, ok := s.credentials[user]; ok && expected == pass {
 		conn.Write([]byte{0x01, 0x00}) // success
 		return true
 	}
@@ -199,5 +239,12 @@ func (s *Server) sendReply(conn net.Conn, status byte, addr *net.TCPAddr) {
 func Serve(addr string, port int, user, pass string) error {
 	listenAddr := fmt.Sprintf("%s:%d", addr, port)
 	srv := NewServer(listenAddr, user, pass)
+	return srv.ListenAndServe()
+}
+
+// ServeMulti starts the built-in SOCKS5 proxy with multiple credentials.
+func ServeMulti(addr string, port int, creds map[string]string) error {
+	listenAddr := fmt.Sprintf("%s:%d", addr, port)
+	srv := NewServerMulti(listenAddr, creds)
 	return srv.ListenAndServe()
 }

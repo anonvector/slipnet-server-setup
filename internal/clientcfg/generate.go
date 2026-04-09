@@ -30,7 +30,7 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 	var fields [TotalFields]string
 
 	// Version and type
-	fields[FVersion] = "20"
+	fields[FVersion] = "22"
 	fields[FTunnelType] = GetTunnelType(tunnel.Transport, tunnel.Backend, opts.ClientMode)
 
 	name := tunnel.Tag
@@ -78,6 +78,14 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 	fields[FVayDNSUdpTimeout] = "0"
 	fields[FVayDNSMaxNumLabels] = "0"
 	fields[FVayDNSClientIdSize] = "0"
+	// v21 defaults
+	fields[FSSHTlsEnabled] = "0"
+	fields[FSSHWsEnabled] = "0"
+	fields[FSSHWsPath] = "/"
+	fields[FSSHWsUseTls] = "1"
+	fields[FSSHHttpProxyPort] = "8080"
+	// v22 defaults
+	fields[FSSHPayload] = b64("")
 
 	// Transport-specific
 	switch tunnel.Transport {
@@ -99,8 +107,6 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 			} else {
 				fields[FVayDNSRecordType] = "txt"
 			}
-			fields[FVayDNSMaxQnameLen] = "101"
-			fields[FVayDNSRps] = "0"
 			if tunnel.VayDNS.IdleTimeout != "" {
 				fields[FVayDNSIdleTimeout] = durationToSeconds(tunnel.VayDNS.ResolvedIdleTimeout())
 			}
@@ -125,6 +131,19 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 			if tunnel.Naive.Password == "" {
 				fields[FNaivePass] = b64("slipgate")
 			}
+		}
+
+	case config.TransportStunTLS:
+		if tunnel.StunTLS != nil {
+			// StunTLS server accepts raw TLS, WebSocket, HTTP CONNECT, and payload.
+			// Default to WebSocket (most compatible with CDNs and restrictive firewalls).
+			// Only set WebSocket fields — don't also set sshTlsEnabled, which is
+			// a Direct-mode flag and would be dead weight.
+			fields[FDomain] = getServerIP()
+			fields[FSSHPort] = fmt.Sprintf("%d", tunnel.StunTLS.Port)
+			fields[FSSHWsEnabled] = "1"
+			fields[FSSHWsUseTls] = "1"
+			fields[FSSHWsPath] = "/"
 		}
 
 	case config.TransportSSH, config.TransportSOCKS:
@@ -164,7 +183,6 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 	return Encode(fields), nil
 }
 
-// durationToSeconds converts a Go duration string (e.g. "10s", "2m") to seconds string.
 func durationToSeconds(d string) string {
 	if d == "" {
 		return "0"

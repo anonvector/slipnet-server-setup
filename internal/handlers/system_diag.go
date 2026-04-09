@@ -93,28 +93,33 @@ func handleSystemDiag(ctx *actions.Context) error {
 		}
 
 		tag := t.Tag
+		isExternal := t.Transport == config.TransportExternal
 
-		// Service status
-		svcName := service.TunnelServiceName(tag)
-		svcExists := service.Exists(svcName)
-		status := "missing"
-		if svcExists {
-			status, _ = service.Status(svcName)
-		}
+		// Service status (external tunnels have no managed service)
+		if isExternal {
+			out.Info(fmt.Sprintf("%-40s %s", fmt.Sprintf("[%s] service", tag), "external (user-managed)"))
+		} else {
+			svcName := service.TunnelServiceName(tag)
+			svcExists := service.Exists(svcName)
+			status := "missing"
+			if svcExists {
+				status, _ = service.Status(svcName)
+			}
 
-		svcOK := status == "active"
-		check(fmt.Sprintf("[%s] service", tag), svcOK,
-			boolStr(svcOK, "active", status))
+			svcOK := status == "active"
+			check(fmt.Sprintf("[%s] service", tag), svcOK,
+				boolStr(svcOK, "active", status))
 
-		if svcExists && !svcOK {
-			showRecentLogs(out, svcName)
-		}
+			if svcExists && !svcOK {
+				showRecentLogs(out, svcName)
+			}
 
-		// Service enabled (survives reboot)
-		if svcExists {
-			enabled := isServiceEnabled(svcName)
-			check(fmt.Sprintf("[%s] enabled at boot", tag), enabled,
-				boolStr(enabled, "yes", "no — will not start after reboot"))
+			// Service enabled (survives reboot)
+			if svcExists {
+				enabled := isServiceEnabled(svcName)
+				check(fmt.Sprintf("[%s] enabled at boot", tag), enabled,
+					boolStr(enabled, "yes", "no — will not start after reboot"))
+			}
 		}
 
 		// Tunnel directory
@@ -142,8 +147,17 @@ func handleSystemDiag(ctx *actions.Context) error {
 		// Port check for DNS tunnels
 		if t.IsDNSTunnel() && t.Port > 0 {
 			portOK := isPortListening(t.Port, "udp")
-			check(fmt.Sprintf("[%s] port %d/udp", tag, t.Port), portOK,
-				boolStr(portOK, "listening", "not listening"))
+			if isExternal {
+				// External: port not listening is expected if user hasn't started their service
+				if portOK {
+					check(fmt.Sprintf("[%s] port %d/udp", tag, t.Port), true, "listening")
+				} else {
+					out.Info(fmt.Sprintf("%-40s %s", fmt.Sprintf("[%s] port %d/udp", tag, t.Port), "not listening (start your service)"))
+				}
+			} else {
+				check(fmt.Sprintf("[%s] port %d/udp", tag, t.Port), portOK,
+					boolStr(portOK, "listening", "not listening"))
+			}
 		}
 	}
 

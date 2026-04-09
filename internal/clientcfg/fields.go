@@ -46,18 +46,30 @@ const (
 	FNoizDNSStealth     = 38 // "0" or "1" (v18)
 	FDNSPayloadSize     = 39 // integer (v18)
 	FSOCKS5ServerPort   = 40 // integer, default 1080 (v18)
-	// v19: VayDNS fields
+	// v19: VayDNS fields (41-44)
 	FVayDNSDnsttCompat  = 41
 	FVayDNSRecordType   = 42
 	FVayDNSMaxQnameLen  = 43
 	FVayDNSRps          = 44
-	// v20: VayDNS advanced
+	// v20: VayDNS advanced (45-49)
 	FVayDNSIdleTimeout  = 45
 	FVayDNSKeepalive    = 46
 	FVayDNSUdpTimeout   = 47
 	FVayDNSMaxNumLabels = 48
 	FVayDNSClientIdSize = 49
-	TotalFields         = 50
+	// v21: SSH over TLS + HTTP proxy + WebSocket (50-58)
+	FSSHTlsEnabled            = 50
+	FSSHTlsSni                = 51
+	FSSHHttpProxyHost         = 52
+	FSSHHttpProxyPort         = 53
+	FSSHHttpProxyCustomHost   = 54
+	FSSHWsEnabled             = 55
+	FSSHWsPath                = 56
+	FSSHWsUseTls              = 57
+	FSSHWsCustomHost          = 58
+	// v22: SSH payload (raw prefix for DPI bypass)
+	FSSHPayload               = 59
+	TotalFields               = 60
 )
 
 // Client modes for DNSTT transport (server is the same, client behavior differs).
@@ -94,6 +106,11 @@ var TunnelTypeMap = map[string]map[string]map[string]string{
 		"": {
 			config.BackendSOCKS: "naive",
 			config.BackendSSH:   "naive_ssh",
+		},
+	},
+	config.TransportStunTLS: {
+		"": {
+			config.BackendSSH: "ssh",
 		},
 	},
 	config.TransportSSH: {

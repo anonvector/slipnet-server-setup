@@ -39,7 +39,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 	out.Print("")
 	out.Print("  Which transports do you want to install?")
 
-	transports, err := prompt.MultiSelect("Transports", actions.TransportOptions)
+	transports, err := prompt.MultiSelect("Transports", actions.InstallTransportOptions)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,6 @@ func handleSystemInstall(ctx *actions.Context) error {
 			out.Warning("Failed to open port 1080/tcp: " + err.Error())
 		}
 	}
-
 	// Load existing config or create defaults for fresh install
 	cfg, err := config.Load()
 	if err != nil {
@@ -155,7 +154,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 	// Check if any selected transport needs a backend prompt
 	needsBackend := false
 	for _, t := range transports {
-		if t != config.TransportSSH && t != config.TransportSOCKS {
+		if t != config.TransportSSH && t != config.TransportSOCKS && t != config.TransportStunTLS {
 			needsBackend = true
 			break
 		}
@@ -190,8 +189,8 @@ func handleSystemInstall(ctx *actions.Context) error {
 		out.Print("")
 		out.Print(fmt.Sprintf("  ── %s ──", displayName))
 
-		// Direct transports (SSH, SOCKS5) have no domain and an implicit backend
-		if selectedTransport == config.TransportSSH || selectedTransport == config.TransportSOCKS {
+		// Direct transports (SSH, SOCKS5, StunTLS) have no domain and an implicit backend
+		if selectedTransport == config.TransportSSH || selectedTransport == config.TransportSOCKS || selectedTransport == config.TransportStunTLS {
 			implicitBackend := config.BackendSSH
 			if selectedTransport == config.TransportSOCKS {
 				implicitBackend = config.BackendSOCKS
@@ -203,6 +202,42 @@ func handleSystemInstall(ctx *actions.Context) error {
 				Transport: selectedTransport,
 				Backend:   implicitBackend,
 				Enabled:   true,
+			}
+
+			// StunTLS needs a TLS certificate and listen port
+			if selectedTransport == config.TransportStunTLS {
+				tunnelDir := config.TunnelDir(tag)
+				if err := os.MkdirAll(tunnelDir, 0750); err != nil {
+					return actions.NewError(actions.SystemInstall, "failed to create tunnel dir", err)
+				}
+				certPath := filepath.Join(tunnelDir, "cert.pem")
+				keyPath := filepath.Join(tunnelDir, "key.pem")
+				out.Info("Generating self-signed TLS certificate...")
+				if err := certs.GenerateSelfSigned(certPath, keyPath, tag); err != nil {
+					return actions.NewError(actions.SystemInstall, "cert generation failed", err)
+				}
+				// Default to 8443 if NaiveProxy is also selected (it uses 443)
+				defaultPort := "443"
+				for _, t := range transports {
+					if t == config.TransportNaive {
+						defaultPort = "8443"
+						break
+					}
+				}
+				portStr, err := prompt.String("TLS listen port", defaultPort)
+				if err != nil {
+					return err
+				}
+				tlsPort := 443
+				if n, e := fmt.Sscanf(portStr, "%d", &tlsPort); n != 1 || e != nil {
+					tlsPort = 443
+				}
+				tunnel.StunTLS = &config.StunTLSConfig{
+					Cert: certPath,
+					Key:  keyPath,
+					Port: tlsPort,
+				}
+				_ = network.AllowPort(tlsPort, "tcp")
 			}
 
 			if err := cfg.ValidateNewTunnel(&tunnel); err != nil {

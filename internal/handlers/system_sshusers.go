@@ -100,16 +100,16 @@ func handleSystemUsers(ctx *actions.Context) error {
 			return actions.NewError(actions.SystemUsers, "failed to create SSH user", err)
 		}
 
-		// Update microsocks with auth
+		// Save to config first so cfg.Users includes the new user
+		cfg.AddUser(config.UserConfig{Username: username, Password: password})
+
+		// Restart SOCKS proxy with ALL users
 		if cfg.Warp.Enabled {
 			proxy.RunAsUser = warp.SocksUser
 		}
-		if err := proxy.SetupSOCKSWithAuth(username, password); err != nil {
+		if err := proxy.SetupSOCKSWithUsers(cfg.Users); err != nil {
 			out.Warning("Failed to update SOCKS proxy auth: " + err.Error())
 		}
-
-		// Save to config
-		cfg.AddUser(config.UserConfig{Username: username, Password: password})
 		if err := cfg.Save(); err != nil {
 			return actions.NewError(actions.SystemUsers, "failed to save config", err)
 		}
@@ -152,8 +152,7 @@ func handleSystemUsers(ctx *actions.Context) error {
 			proxy.RunAsUser = warp.SocksUser
 		}
 		if len(cfg.Users) > 0 {
-			first := cfg.Users[0]
-			_ = proxy.SetupSOCKSWithAuth(first.Username, first.Password)
+			_ = proxy.SetupSOCKSWithUsers(cfg.Users)
 		} else {
 			_ = proxy.SetupSOCKS()
 		}

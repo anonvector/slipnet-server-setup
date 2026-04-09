@@ -4,11 +4,12 @@ Unified tunnel manager for Linux servers. Manages DNS tunnels (DNSTT, NoizDNS, S
 
 ## Features
 
-- **Multi-transport**: DNSTT/NoizDNS (DNS tunnels with Curve25519 encryption), Slipstream (QUIC-based DNS), VayDNS (KCP-based DNS with Curve25519), NaiveProxy (HTTPS with Caddy)
+- **Multi-transport**: DNSTT/NoizDNS (DNS tunnels with Curve25519 encryption), Slipstream (QUIC-based DNS), VayDNS (KCP-based DNS with Curve25519), NaiveProxy (HTTPS with Caddy), StunTLS (SSH over TLS + WebSocket)
 - **Dual backend**: Built-in SOCKS5 proxy or SSH forwarding
 - **DNS routing**: Single-tunnel or multi-tunnel mode with domain-based dispatch
+- **External routing**: Forward DNS queries for a domain to a custom port for user-managed protocols
 - **WARP integration**: Optional Cloudflare WARP outbound routing (see [dnstun-ezpz](https://github.com/aleskxyz/dnstun-ezpz) for an alternative approach)
-- **User management**: Managed SSH + SOCKS credentials per user
+- **User management**: Multi-user SSH + SOCKS credentials (all users authenticate simultaneously)
 - **Live dashboard**: Real-time TUI with CPU, RAM, traffic sparklines, per-protocol connection stats, and tunnel status
 - **Diagnostics**: Built-in health checks for services, ports, keys, DNS resolution, and boot persistence
 - **Interactive TUI + CLI**: Menu-driven setup or scriptable subcommands
@@ -21,7 +22,7 @@ Unified tunnel manager for Linux servers. Manages DNS tunnels (DNSTT, NoizDNS, S
 
 - **OS**: Linux (Ubuntu 20.04+, Debian 11+, or similar)
 - **Domain**: DNS A record pointed at your server (required for DNS tunnels and NaiveProxy)
-- **Ports**: 53/udp (DNS tunnels), 443/tcp (NaiveProxy)
+- **Ports**: 53/udp (DNS tunnels), 443/tcp (NaiveProxy, StunTLS)
 
 ## Quick Start
 
@@ -103,6 +104,7 @@ slipgate config import          # Import configuration
 # Internal (used by systemd services)
 slipgate dnsrouter serve        # Start DNS router
 slipgate socks serve            # Start built-in SOCKS5 proxy
+slipgate stuntls serve          # Start StunTLS proxy
 ```
 
 ### Non-Interactive Examples
@@ -168,6 +170,19 @@ sudo slipgate tunnel add \
   --email admin@example.com \
   --decoy-url https://www.wikipedia.org
 
+# StunTLS tunnel (SSH over TLS + WebSocket)
+sudo slipgate tunnel add \
+  --transport stuntls \
+  --tag mytls
+
+# External DNS routing (forward queries to a custom port)
+sudo slipgate tunnel add \
+  --transport external \
+  --tag my-proto \
+  --domain j.example.com
+# → prompts for target UDP port (e.g. 5301)
+# Queries for j.example.com route to 127.0.0.1:5301
+
 # Direct SSH / SOCKS5 transports
 sudo slipgate tunnel add --transport direct-ssh --tag myssh
 sudo slipgate tunnel add --transport direct-socks5 --tag mysocks
@@ -202,7 +217,7 @@ sudo slipgate tunnel share mydnstt
                        │                  │
                        └────────┬─────────┘
                                 │
-              DNS :53/udp ──────┼────── HTTPS :443/tcp
+              DNS :53/udp ──────┼────── HTTPS/TLS :443/tcp
                     │           │           │
 ┌───────────────────┼───────────┼───────────┼──────────────────┐
 │  SERVER           v           │           v                  │
@@ -211,12 +226,13 @@ sudo slipgate tunnel share mydnstt
 │  │      DNS Router        │   │   │     NaiveProxy        │  │
 │  │  domain-based dispatch │   │   │  Caddy + Auto-TLS     │  │
 │  │  single / multi mode   │   │   │  + decoy website      │  │
-│  └──┬────────┬────────┬───┘   │   └───────────┬───────────┘  │
-│     │        │        │       │               │              │
-│     v        v        v       │               │              │
-│  ┌──────┐┌────────┐┌──────┐   │               │              │
-│  │DNSTT ││Slip-   ││VayDNS│   │               │              │
-│  │NoizDN││stream  ││      │   │               │              │
+│  │  + external routing    │   │   └───────────┬───────────┘  │
+│  └──┬────────┬────────┬───┘   │               │              │
+│     │        │        │       │   ┌───────────────────────┐  │
+│     v        v        v       │   │     StunTLS           │  │
+│  ┌──────┐┌────────┐┌──────┐   │   │  SSH over TLS + WS   │  │
+│  │DNSTT ││Slip-   ││VayDNS│   │   │  self-signed cert     │  │
+│  │NoizDN││stream  ││      │   │   └───────────┬───────────┘  │
 │  │──────││────────││──────│   │               │              │
 │  │DNS   ││QUIC    ││KCP   │   │               │              │
 │  │Curve ││TLS cert││Curve │   │               │              │
@@ -255,6 +271,8 @@ sudo slipgate tunnel share mydnstt
 | **Slipstream** | QUIC DNS | 53/udp | QUIC-based tunnel with certificate authentication |
 | **VayDNS** | KCP DNS | 53/udp | KCP-based DNS tunnel with Curve25519 encryption. Supports configurable idle timeout, keepalive, queue size, and multiple DNS record types |
 | **NaiveProxy** | HTTPS | 443/tcp | Caddy with forwardproxy plugin. Auto-TLS via Let's Encrypt. Probe-resistant with decoy site |
+| **StunTLS** | TLS/WSS | 443/tcp | SSH over TLS + WebSocket proxy. Auto-detects WebSocket, HTTP CONNECT, raw TLS, and payload (DPI bypass) modes. Self-signed TLS cert, no domain required |
+| **External** | DNS | 53/udp | Routes DNS queries for a domain to a user-specified UDP port. No managed service — use for custom/private protocol testing |
 
 ### Domain Layout
 

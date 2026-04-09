@@ -99,8 +99,7 @@ func recreateProxies(cfg *config.Config, warpEnabled bool, out actions.OutputWri
 		proxy.RunAsUser = ""
 	}
 	if len(cfg.Users) > 0 {
-		first := cfg.Users[0]
-		if err := proxy.SetupSOCKSWithAuth(first.Username, first.Password); err != nil {
+		if err := proxy.SetupSOCKSWithUsers(cfg.Users); err != nil {
 			out.Warning("Failed to update SOCKS proxy: " + err.Error())
 		}
 	} else {

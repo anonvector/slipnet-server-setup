@@ -11,9 +11,9 @@ import (
 // SwitchMode is kept for backward compatibility but all tunnels now use the
 // DNS router. Restarting services ensures they bind to internal ports.
 func SwitchMode(cfg *config.Config, newMode string) error {
-	// Restart all DNS tunnel services to pick up config changes
+	// Restart all managed DNS tunnel services to pick up config changes
 	for _, t := range cfg.Tunnels {
-		if t.IsDNSTunnel() && t.Enabled {
+		if t.HasManagedService() && t.Enabled {
 			svcName := service.TunnelServiceName(t.Tag)
 			if err := service.Restart(svcName); err != nil {
 				return fmt.Errorf("restart tunnel %s: %w", t.Tag, err)
@@ -33,13 +33,18 @@ func SwitchActive(cfg *config.Config, tag string) error {
 	}
 
 	if cfg.Route.Active != "" && cfg.Route.Active != tag {
-		oldName := service.TunnelServiceName(cfg.Route.Active)
-		_ = service.Stop(oldName)
+		old := cfg.GetTunnel(cfg.Route.Active)
+		if old != nil && old.HasManagedService() {
+			oldName := service.TunnelServiceName(cfg.Route.Active)
+			_ = service.Stop(oldName)
+		}
 	}
 
-	newName := service.TunnelServiceName(tag)
-	if err := service.Start(newName); err != nil {
-		return err
+	if tunnel.HasManagedService() {
+		newName := service.TunnelServiceName(tag)
+		if err := service.Start(newName); err != nil {
+			return err
+		}
 	}
 
 	return dnsrouter.RestartRouterService()

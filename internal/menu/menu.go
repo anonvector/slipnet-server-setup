@@ -280,7 +280,6 @@ func batchTunnelAdd(cfg *config.Config) error {
 
 	// Multi transport: prompt shared fields, then per-transport fields
 	for _, t := range transports {
-		isDirect := t == config.TransportSSH || t == config.TransportSOCKS
 		displayName := t
 		for _, opt := range actions.TransportOptions {
 			if opt.Value == t {
@@ -292,13 +291,17 @@ func batchTunnelAdd(cfg *config.Config) error {
 
 		args := map[string]string{"transport": t}
 
-		if isDirect {
-			if t == config.TransportSSH {
-				args["backend"] = config.BackendSSH
-			} else {
-				args["backend"] = config.BackendSOCKS
-			}
-		} else {
+		// Transports with implicit backends don't need a backend prompt
+		switch t {
+		case config.TransportSSH:
+			args["backend"] = config.BackendSSH
+		case config.TransportSOCKS:
+			args["backend"] = config.BackendSOCKS
+		case config.TransportStunTLS:
+			args["backend"] = config.BackendSSH
+		case config.TransportExternal:
+			args["backend"] = "external"
+		default:
 			backend, err := prompt.Select("Backend", actions.BackendOptions)
 			if err != nil {
 				return err
@@ -306,13 +309,15 @@ func batchTunnelAdd(cfg *config.Config) error {
 			args["backend"] = backend
 		}
 
+		needsDomain := t != config.TransportSSH && t != config.TransportSOCKS && t != config.TransportStunTLS
+
 		tag, err := prompt.String("Tag (unique name)", "")
 		if err != nil {
 			return err
 		}
 		args["tag"] = tag
 
-		if !isDirect {
+		if needsDomain {
 			domain, err := prompt.String("Domain", "")
 			if err != nil {
 				return err

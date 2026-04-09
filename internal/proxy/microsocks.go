@@ -15,30 +15,42 @@ const socksServiceName = "slipgate-socks5"
 // Set this before calling any Setup* function when WARP routing is active.
 var RunAsUser string
 
-// SetupSOCKS creates the SOCKS5 proxy service (localhost only).
+// SetupSOCKS creates the SOCKS5 proxy service (localhost only, no auth).
 func SetupSOCKS() error {
-	return setupSOCKS("127.0.0.1", "", "")
+	return setupSOCKSMulti("127.0.0.1", nil)
 }
 
-// SetupSOCKSWithAuth creates the SOCKS5 proxy with auth (localhost only).
+// SetupSOCKSWithAuth creates the SOCKS5 proxy with a single user (localhost only).
 func SetupSOCKSWithAuth(user, password string) error {
-	return setupSOCKS("127.0.0.1", user, password)
+	return setupSOCKSMulti("127.0.0.1", []config.UserConfig{{Username: user, Password: password}})
+}
+
+// SetupSOCKSWithUsers creates the SOCKS5 proxy with multiple users (localhost only).
+func SetupSOCKSWithUsers(users []config.UserConfig) error {
+	return setupSOCKSMulti("127.0.0.1", users)
 }
 
 // SetupSOCKSExternal creates the SOCKS5 proxy on all interfaces (for direct SOCKS5).
 func SetupSOCKSExternal(user, password string) error {
-	return setupSOCKS("0.0.0.0", user, password)
+	return setupSOCKSMulti("0.0.0.0", []config.UserConfig{{Username: user, Password: password}})
 }
 
-func setupSOCKS(listenAddr, user, password string) error {
+// SetupSOCKSExternalWithUsers creates the SOCKS5 proxy on all interfaces with multiple users.
+func SetupSOCKSExternalWithUsers(users []config.UserConfig) error {
+	return setupSOCKSMulti("0.0.0.0", users)
+}
+
+func setupSOCKSMulti(listenAddr string, users []config.UserConfig) error {
 	execPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
 	args := fmt.Sprintf("%s socks serve --addr %s --port 1080", execPath, listenAddr)
-	if user != "" && password != "" {
-		args += fmt.Sprintf(" --user %s --pass %s", user, password)
+	for _, u := range users {
+		if u.Username != "" && u.Password != "" {
+			args += fmt.Sprintf(" --creds %s:%s", u.Username, u.Password)
+		}
 	}
 
 	// Clean up old microsocks service if it exists
