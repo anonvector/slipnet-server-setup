@@ -15,13 +15,14 @@ var TransportOptions = []SelectOption{
 }
 
 // InstallTransportOptions is the subset shown in the install/wizard flows.
-// StunTLS and External are excluded because they need transport-specific
-// prompts that only `tunnel add` provides.
+// External is excluded because it routes to a user-managed service that
+// wouldn't exist yet during initial setup.
 var InstallTransportOptions = []SelectOption{
 	{Value: "dnstt", Label: "DNSTT / NoizDNS — DNS tunnel"},
 	{Value: "slipstream", Label: "Slipstream — QUIC DNS tunnel"},
 	{Value: "vaydns", Label: "VayDNS — KCP DNS tunnel"},
 	{Value: "naive", Label: "NaiveProxy — HTTPS proxy with Caddy"},
+	{Value: "stuntls", Label: "StunTLS — SSH over TLS + WebSocket proxy"},
 	{Value: "direct-ssh", Label: "SSH — Direct SSH tunnel"},
 	{Value: "direct-socks5", Label: "SOCKS5 — Direct SOCKS5 proxy"},
 }
