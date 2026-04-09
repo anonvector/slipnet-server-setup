@@ -38,7 +38,7 @@ CHANNEL="dev"  # ← set to "dev" on dev branch, empty on main
 if [[ -z "$RELEASE_TAG" && "$CHANNEL" == "dev" ]]; then
     {
         RELEASE_TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
-            | grep -o '"tag_name": *"dev-[^"]*"' | head -1 | cut -d'"' -f4 || true)
+            | grep -o '"tag_name": *"[^"]*-dev[^"]*"' | head -1 | cut -d'"' -f4 || true)
     }
 fi
 
