@@ -67,7 +67,9 @@ const (
 	FSSHWsPath                = 56
 	FSSHWsUseTls              = 57
 	FSSHWsCustomHost          = 58
-	TotalFields               = 59
+	// v22: SSH payload (raw prefix for DPI bypass)
+	FSSHPayload               = 59
+	TotalFields               = 60
 )
 
 // Client modes for DNSTT transport (server is the same, client behavior differs).

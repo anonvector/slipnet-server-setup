@@ -9,6 +9,7 @@ const (
 	TransportStunTLS    = "stuntls"
 	TransportSSH        = "direct-ssh"
 	TransportSOCKS      = "direct-socks5"
+	TransportExternal   = "external"
 )
 
 // TunnelConfig defines a single tunnel.
@@ -123,10 +124,15 @@ type StunTLSConfig struct {
 // IsDNSTunnel returns true if the transport uses DNS port 53.
 func (t *TunnelConfig) IsDNSTunnel() bool {
 	switch t.Transport {
-	case TransportDNSTT, TransportSlipstream, TransportVayDNS:
+	case TransportDNSTT, TransportSlipstream, TransportVayDNS, TransportExternal:
 		return true
 	}
 	return false
+}
+
+// HasManagedService returns true if slipgate manages a systemd service for this tunnel.
+func (t *TunnelConfig) HasManagedService() bool {
+	return t.IsDNSTunnel() && t.Transport != TransportExternal
 }
 
 // IsDirectTransport returns true for transports that expose a service directly (no tunnel).

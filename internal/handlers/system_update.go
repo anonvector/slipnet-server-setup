@@ -87,17 +87,12 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		out.Info("Migrating from microsocks to built-in SOCKS5 proxy...")
 		cfg := ctx.Config.(*config.Config)
 
-		// Determine listen mode and auth from existing config
+		// Determine listen mode from existing config
 		directSOCKS := false
 		for _, t := range cfg.Tunnels {
 			if t.Transport == config.TransportSOCKS {
 				directSOCKS = true
 			}
-		}
-		user, pass := "", ""
-		if len(cfg.Users) > 0 {
-			user = cfg.Users[0].Username
-			pass = cfg.Users[0].Password
 		}
 
 		if cfg.Warp.Enabled {
@@ -105,9 +100,9 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		}
 		var setupErr error
 		if directSOCKS {
-			setupErr = proxy.SetupSOCKSExternal(user, pass)
-		} else if user != "" {
-			setupErr = proxy.SetupSOCKSWithAuth(user, pass)
+			setupErr = proxy.SetupSOCKSExternalWithUsers(cfg.Users)
+		} else if len(cfg.Users) > 0 {
+			setupErr = proxy.SetupSOCKSWithUsers(cfg.Users)
 		} else {
 			setupErr = proxy.SetupSOCKS()
 		}

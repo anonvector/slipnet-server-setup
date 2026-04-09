@@ -23,6 +23,9 @@ func CreateService(tunnel *config.TunnelConfig, cfg *config.Config) error {
 	case config.TransportSSH, config.TransportSOCKS:
 		// Direct transports use existing system services (sshd, microsocks)
 		return nil
+	case config.TransportExternal:
+		// External tunnels use a user-managed service; nothing to create
+		return nil
 	default:
 		return fmt.Errorf("unknown transport: %s", tunnel.Transport)
 	}

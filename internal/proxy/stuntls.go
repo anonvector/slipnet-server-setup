@@ -16,9 +16,11 @@ import (
 )
 
 // StunTLSServer accepts TLS connections and forwards traffic to SSH.
-// It auto-detects whether the client sends a WebSocket upgrade or raw data:
-//   - WebSocket: performs HTTP upgrade, then relays WebSocket binary frames ↔ TCP
-//   - Raw TLS: relays TCP directly (stunnel-compatible)
+// It auto-detects the client protocol by peeking at the first bytes:
+//   - "GET "    → WebSocket: HTTP upgrade, then relay WS binary frames ↔ TCP
+//   - "CONNECT" → HTTP CONNECT proxy: tunnel through to SSH backend
+//   - "SSH-"    → Raw SSH over TLS (stunnel-compatible)
+//   - other     → Payload mode: skip non-SSH prefix bytes, then relay to SSH
 type StunTLSServer struct {
 	listenAddr string
 	sshAddr    string
@@ -70,20 +72,31 @@ func (s *StunTLSServer) handleConn(conn net.Conn) {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
-	// Peek at first bytes to detect WebSocket upgrade vs raw SSH
+	// Peek at first bytes to detect protocol
 	br := bufio.NewReaderSize(conn, 4096)
 	first, err := br.Peek(4)
 	if err != nil {
 		return
 	}
+	prefix := string(first)
 
-	// HTTP methods start with "GET " — WebSocket upgrade
-	if string(first) == "GET " {
-		conn.SetDeadline(time.Time{}) // clear deadline
+	conn.SetDeadline(time.Time{}) // clear deadline
+
+	switch {
+	case prefix == "GET ":
+		// WebSocket upgrade
 		s.handleWebSocket(br, conn)
-	} else {
-		conn.SetDeadline(time.Time{})
+	case prefix == "CONN":
+		// HTTP CONNECT proxy
+		s.handleHTTPConnect(br, conn)
+	case prefix == "SSH-":
+		// Raw SSH banner — relay directly (stunnel mode)
 		s.handleRaw(br, conn)
+	default:
+		// Unknown prefix — likely a payload (raw bytes before SSH banner).
+		// Scan forward to find the SSH-2.0 banner, discard everything before it,
+		// then relay the SSH stream to the backend.
+		s.handlePayload(br, conn)
 	}
 }
 
@@ -98,6 +111,102 @@ func (s *StunTLSServer) handleRaw(br *bufio.Reader, conn net.Conn) {
 
 	relay(newPeekedConn(br, conn), remote)
 }
+
+// handleHTTPConnect handles HTTP CONNECT proxy requests.
+// The client sends "CONNECT host:port HTTP/1.1\r\n...\r\n\r\n",
+// we reply with 200, then relay the tunneled connection to SSH.
+func (s *StunTLSServer) handleHTTPConnect(br *bufio.Reader, conn net.Conn) {
+	// Read the full HTTP request (reuse the existing parser)
+	req, err := readHTTPRequest(br)
+	if err != nil {
+		log.Printf("connect: read request: %v", err)
+		return
+	}
+	if req.method != "CONNECT" {
+		conn.Write([]byte("HTTP/1.1 405 Method Not Allowed\r\n\r\n"))
+		return
+	}
+
+	log.Printf("connect: CONNECT %s", req.path)
+
+	// Connect to SSH backend
+	remote, err := net.DialTimeout("tcp", s.sshAddr, 10*time.Second)
+	if err != nil {
+		log.Printf("connect: dial SSH: %v", err)
+		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+	defer remote.Close()
+
+	// Send 200 to indicate tunnel is established
+	if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+		return
+	}
+
+	// Relay bidirectionally — from here on, the client runs SSH (or TLS+SSH) inside the tunnel
+	relay(newPeekedConn(br, conn), remote)
+}
+
+// handlePayload handles connections that start with a non-SSH prefix (payload/DPI bypass).
+// It scans the incoming stream for the SSH version banner ("SSH-"), discards everything
+// before it, then relays the SSH session to the backend.
+func (s *StunTLSServer) handlePayload(br *bufio.Reader, conn net.Conn) {
+	// Scan byte-by-byte for "SSH-" (max 8KB to prevent abuse)
+	const maxScan = 8192
+	scanned := 0
+	matchIdx := 0
+	target := []byte("SSH-")
+
+	for scanned < maxScan {
+		b, err := br.ReadByte()
+		if err != nil {
+			return
+		}
+		scanned++
+
+		if b == target[matchIdx] {
+			matchIdx++
+			if matchIdx == len(target) {
+				// Found "SSH-" — unread the matched bytes so the SSH banner is intact
+				if err := br.UnreadByte(); err != nil {
+					return
+				}
+				// UnreadByte only unreads 1 byte; we need to prepend "SSH" to the stream.
+				// Create a new reader that starts with "SSH" + rest of br.
+				prefix := io.MultiReader(strings.NewReader("SSH"), br)
+				prefixConn := &readerConn{Reader: prefix, Conn: conn}
+
+				remote, err := net.DialTimeout("tcp", s.sshAddr, 10*time.Second)
+				if err != nil {
+					log.Printf("payload: dial SSH: %v", err)
+					return
+				}
+				defer remote.Close()
+
+				log.Printf("payload: found SSH banner after %d bytes of payload", scanned-len(target))
+				relay(prefixConn, remote)
+				return
+			}
+		} else {
+			// Reset match — but check if current byte starts a new match
+			if matchIdx > 0 {
+				matchIdx = 0
+				if b == target[0] {
+					matchIdx = 1
+				}
+			}
+		}
+	}
+	log.Printf("payload: no SSH banner found within %d bytes, dropping", maxScan)
+}
+
+// readerConn wraps a custom Reader with an existing net.Conn for writes/close.
+type readerConn struct {
+	io.Reader
+	net.Conn
+}
+
+func (c *readerConn) Read(b []byte) (int, error) { return c.Reader.Read(b) }
 
 // handleWebSocket performs WebSocket upgrade, then relays WS frames ↔ SSH TCP.
 func (s *StunTLSServer) handleWebSocket(br *bufio.Reader, conn net.Conn) {

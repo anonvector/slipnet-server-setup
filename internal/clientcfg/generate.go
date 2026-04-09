@@ -30,7 +30,7 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 	var fields [TotalFields]string
 
 	// Version and type
-	fields[FVersion] = "21"
+	fields[FVersion] = "22"
 	fields[FTunnelType] = GetTunnelType(tunnel.Transport, tunnel.Backend, opts.ClientMode)
 
 	name := tunnel.Tag
@@ -84,6 +84,8 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 	fields[FSSHWsPath] = "/"
 	fields[FSSHWsUseTls] = "1"
 	fields[FSSHHttpProxyPort] = "8080"
+	// v22 defaults
+	fields[FSSHPayload] = b64("")
 
 	// Transport-specific
 	switch tunnel.Transport {
@@ -133,11 +135,15 @@ func GenerateURI(tunnel *config.TunnelConfig, backend *config.BackendConfig, cfg
 
 	case config.TransportStunTLS:
 		if tunnel.StunTLS != nil {
-			// Client sees this as SSH tunnel with TLS enabled (stunnel mode).
-			// The server also accepts WebSocket — users can enable WS in the app if needed.
+			// StunTLS server accepts raw TLS, WebSocket, HTTP CONNECT, and payload.
+			// Default to WebSocket (most compatible with CDNs and restrictive firewalls).
+			// Only set WebSocket fields — don't also set sshTlsEnabled, which is
+			// a Direct-mode flag and would be dead weight.
 			fields[FDomain] = getServerIP()
 			fields[FSSHPort] = fmt.Sprintf("%d", tunnel.StunTLS.Port)
-			fields[FSSHTlsEnabled] = "1"
+			fields[FSSHWsEnabled] = "1"
+			fields[FSSHWsUseTls] = "1"
+			fields[FSSHWsPath] = "/"
 		}
 
 	case config.TransportSSH, config.TransportSOCKS:

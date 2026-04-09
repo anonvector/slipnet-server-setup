@@ -45,6 +45,9 @@ func handleTunnelAdd(ctx *actions.Context) error {
 			backend = config.BackendSSH
 		}
 	}
+	if transport_ == config.TransportExternal {
+		backend = "external"
+	}
 	if backend == "" {
 		var err error
 		backend, err = prompt.Select("Backend", actions.BackendOptions)
@@ -139,8 +142,8 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 		Enabled:   true,
 	}
 
-	// Assign port for DNS tunnels
-	if tunnel.IsDNSTunnel() {
+	// Assign port for DNS tunnels (external tunnels get their port from user input)
+	if tunnel.HasManagedService() {
 		tunnel.Port = cfg.NextAvailablePort()
 	}
 
@@ -372,6 +375,17 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 			Port: tlsPort,
 		}
 
+	case config.TransportExternal:
+		portStr, err := prompt.String("Target UDP port", "5301")
+		if err != nil {
+			return err
+		}
+		extPort := 5301
+		if n, e := fmt.Sscanf(portStr, "%d", &extPort); n != 1 || e != nil {
+			extPort = 5301
+		}
+		tunnel.Port = extPort
+
 	case config.TransportNaive:
 		email := ctx.GetArg("email")
 		if email == "" {
@@ -435,7 +449,7 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 	if tunnel.IsDNSTunnel() {
 		_ = network.AllowPort(53, "udp")
 		_ = network.DisableResolvedStub()
-		if tunnel.Port > 0 {
+		if tunnel.Port > 0 && tunnel.HasManagedService() {
 			network.FreePort(tunnel.Port, "udp")
 		}
 	}
