@@ -39,7 +39,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 	out.Print("")
 	out.Print("  Which transports do you want to install?")
 
-	transports, err := prompt.MultiSelect("Transports", actions.TransportOptions)
+	transports, err := prompt.MultiSelect("Transports", actions.InstallTransportOptions)
 	if err != nil {
 		return err
 	}

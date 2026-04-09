@@ -33,7 +33,7 @@ func handleQuickWizard(ctx *actions.Context) error {
 	out.Print("")
 
 	// 1. Pick transports (multi-select)
-	selectedTransports, err := prompt.MultiSelect("Transports", actions.TransportOptions)
+	selectedTransports, err := prompt.MultiSelect("Transports", actions.InstallTransportOptions)
 	if err != nil {
 		return err
 	}

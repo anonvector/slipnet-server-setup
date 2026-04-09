@@ -2,6 +2,7 @@ package actions
 
 // Shared select options used across multiple actions.
 
+// TransportOptions is the full list shown in `tunnel add`.
 var TransportOptions = []SelectOption{
 	{Value: "dnstt", Label: "DNSTT / NoizDNS — DNS tunnel"},
 	{Value: "slipstream", Label: "Slipstream — QUIC DNS tunnel"},
@@ -9,6 +10,18 @@ var TransportOptions = []SelectOption{
 	{Value: "naive", Label: "NaiveProxy — HTTPS proxy with Caddy"},
 	{Value: "stuntls", Label: "StunTLS — SSH over TLS + WebSocket proxy"},
 	{Value: "external", Label: "External — Route DNS to a custom port"},
+	{Value: "direct-ssh", Label: "SSH — Direct SSH tunnel"},
+	{Value: "direct-socks5", Label: "SOCKS5 — Direct SOCKS5 proxy"},
+}
+
+// InstallTransportOptions is the subset shown in the install/wizard flows.
+// StunTLS and External are excluded because they need transport-specific
+// prompts that only `tunnel add` provides.
+var InstallTransportOptions = []SelectOption{
+	{Value: "dnstt", Label: "DNSTT / NoizDNS — DNS tunnel"},
+	{Value: "slipstream", Label: "Slipstream — QUIC DNS tunnel"},
+	{Value: "vaydns", Label: "VayDNS — KCP DNS tunnel"},
+	{Value: "naive", Label: "NaiveProxy — HTTPS proxy with Caddy"},
 	{Value: "direct-ssh", Label: "SSH — Direct SSH tunnel"},
 	{Value: "direct-socks5", Label: "SOCKS5 — Direct SOCKS5 proxy"},
 }
