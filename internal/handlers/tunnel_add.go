@@ -376,13 +376,24 @@ func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backe
 		}
 
 	case config.TransportExternal:
-		portStr, err := prompt.String("Target UDP port", "5301")
+		// Suggest a port that doesn't conflict with existing tunnels
+		defaultPort := 5301
+		usedPorts := make(map[int]bool)
+		for _, t := range cfg.Tunnels {
+			if t.Port > 0 {
+				usedPorts[t.Port] = true
+			}
+		}
+		for usedPorts[defaultPort] {
+			defaultPort++
+		}
+		portStr, err := prompt.String("Target UDP port", fmt.Sprintf("%d", defaultPort))
 		if err != nil {
 			return err
 		}
-		extPort := 5301
+		extPort := defaultPort
 		if n, e := fmt.Sscanf(portStr, "%d", &extPort); n != 1 || e != nil {
-			extPort = 5301
+			extPort = defaultPort
 		}
 		tunnel.Port = extPort
 
