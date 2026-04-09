@@ -170,15 +170,38 @@ func handleSystemUpdate(ctx *actions.Context) error {
 		}
 	}
 
-	// Restart infrastructure services last so tunnels are ready when
-	// the DNS router and SOCKS5 proxy come back up
-	for _, svc := range []string{"slipgate-socks5", "slipgate-dnsrouter"} {
-		if service.Exists(svc) {
-			if err := service.Restart(svc); err != nil {
-				out.Warning(fmt.Sprintf("Failed to restart %s: %v", svc, err))
-			} else {
-				out.Success(fmt.Sprintf("  %s restarted", svc))
+	// Recreate SOCKS5 proxy service to pick up new ExecStart format (e.g. --creds)
+	if service.Exists("slipgate-socks5") {
+		directSOCKS := false
+		for _, t := range cfg.Tunnels {
+			if t.Transport == config.TransportSOCKS {
+				directSOCKS = true
 			}
+		}
+		if cfg.Warp.Enabled {
+			proxy.RunAsUser = warp.SocksUser
+		}
+		var setupErr error
+		if directSOCKS {
+			setupErr = proxy.SetupSOCKSExternalWithUsers(cfg.Users)
+		} else if len(cfg.Users) > 0 {
+			setupErr = proxy.SetupSOCKSWithUsers(cfg.Users)
+		} else {
+			setupErr = proxy.SetupSOCKS()
+		}
+		if setupErr != nil {
+			out.Warning("Failed to regenerate SOCKS5 proxy: " + setupErr.Error())
+		} else {
+			out.Success("  slipgate-socks5 regenerated and restarted")
+		}
+	}
+
+	// Restart DNS router last so tunnels are ready
+	if service.Exists("slipgate-dnsrouter") {
+		if err := service.Restart("slipgate-dnsrouter"); err != nil {
+			out.Warning(fmt.Sprintf("Failed to restart slipgate-dnsrouter: %v", err))
+		} else {
+			out.Success("  slipgate-dnsrouter restarted")
 		}
 	}
 
