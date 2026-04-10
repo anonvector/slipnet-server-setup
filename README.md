@@ -5,7 +5,7 @@ Unified tunnel manager for Linux servers. Manages DNS tunnels (DNSTT, NoizDNS, S
 ## Features
 
 - **Multi-transport**: DNSTT/NoizDNS (DNS tunnels with Curve25519 encryption), Slipstream (QUIC-based DNS), VayDNS (KCP-based DNS with Curve25519), NaiveProxy (HTTPS with Caddy), StunTLS (SSH over TLS + WebSocket)
-- **Dual backend**: Built-in SOCKS5 proxy or SSH forwarding
+- **Dual backend**: Built-in SOCKS5 proxy or SSH forwarding (custom SSH port supported)
 - **DNS routing**: Single-tunnel or multi-tunnel mode with domain-based dispatch
 - **External routing**: Forward DNS queries for a domain to a custom port for user-managed protocols
 - **WARP integration**: Optional Cloudflare WARP outbound routing (see [dnstun-ezpz](https://github.com/aleskxyz/dnstun-ezpz) for an alternative approach)
@@ -20,7 +20,7 @@ Unified tunnel manager for Linux servers. Manages DNS tunnels (DNSTT, NoizDNS, S
 
 ## Requirements
 
-- **OS**: Linux (Ubuntu 20.04+, Debian 11+, or similar)
+- **OS**: Linux (Ubuntu 20.04+, Debian 10+, or similar)
 - **Domain**: DNS A record pointed at your server (required for DNS tunnels and NaiveProxy)
 - **Ports**: 53/udp (DNS tunnels), 443/tcp (NaiveProxy, StunTLS)
 
@@ -247,7 +247,7 @@ sudo slipgate tunnel share mydnstt
 │  │   ┌──────────────────┐    ┌──────────────────────┐   │    │
 │  │   │  SOCKS5 Proxy    │    │   SSH Forwarding     │   │    │
 │  │   │  built-in Go     │    │   port forwarding    │   │    │
-│  │   │  :1080           │    │   :22                │   │    │
+│  │   │  :1080           │    │   :22 (configurable) │   │    │
 │  │   └────────┬─────────┘    └──────────┬───────────┘   │    │
 │  │            └─────────┬───────────────┘               │    │
 │  └──────────────────────┼───────────────────────────────┘    │
