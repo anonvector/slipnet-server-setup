@@ -140,6 +140,22 @@ func Exists(name string) bool {
 	return err == nil
 }
 
+// GetUser returns the User= value from a service's unit file.
+func GetUser(name string) string {
+	path := filepath.Join(systemdDir, name+".service")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "User=") {
+			return strings.TrimPrefix(line, "User=")
+		}
+	}
+	return ""
+}
+
 // ListSlipgateServices returns the names of all slipgate-* service files
 // found in the systemd directory (without the .service suffix).
 func ListSlipgateServices() []string {

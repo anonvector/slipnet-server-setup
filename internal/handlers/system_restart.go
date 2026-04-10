@@ -6,7 +6,9 @@ import (
 	"github.com/anonvector/slipgate/internal/actions"
 	"github.com/anonvector/slipgate/internal/config"
 	"github.com/anonvector/slipgate/internal/network"
+	"github.com/anonvector/slipgate/internal/proxy"
 	"github.com/anonvector/slipgate/internal/service"
+	"github.com/anonvector/slipgate/internal/warp"
 )
 
 func handleSystemRestart(ctx *actions.Context) error {
@@ -27,10 +29,47 @@ func handleSystemRestart(ctx *actions.Context) error {
 
 	// 1. Restart SOCKS5 backend first (tunnels forward to it)
 	if service.Exists("slipgate-socks5") {
-		if err := service.Restart("slipgate-socks5"); err != nil {
-			out.Warning(fmt.Sprintf("Failed to restart slipgate-socks5: %v", err))
+		// Check if the service user matches the expected WARP state.
+		// If not, recreate the service file to fix it.
+		expectedUser := config.SystemUser
+		if cfg.Warp.Enabled {
+			expectedUser = warp.SocksUser
+		}
+		if service.GetUser("slipgate-socks5") != expectedUser {
+			if cfg.Warp.Enabled {
+				proxy.RunAsUser = warp.SocksUser
+			} else {
+				proxy.RunAsUser = ""
+			}
+			directSOCKS := false
+			for _, t := range cfg.Tunnels {
+				if t.Transport == config.TransportSOCKS {
+					directSOCKS = true
+				}
+			}
+			var socksErr error
+			if directSOCKS {
+				if len(cfg.Users) > 0 {
+					socksErr = proxy.SetupSOCKSExternalWithUsers(cfg.Users)
+				} else {
+					socksErr = proxy.SetupSOCKS()
+				}
+			} else if len(cfg.Users) > 0 {
+				socksErr = proxy.SetupSOCKSWithUsers(cfg.Users)
+			} else {
+				socksErr = proxy.SetupSOCKS()
+			}
+			if socksErr != nil {
+				out.Warning(fmt.Sprintf("Failed to restart slipgate-socks5: %v", socksErr))
+			} else {
+				out.Success("  slipgate-socks5 restarted (fixed service user)")
+			}
 		} else {
-			out.Success("  slipgate-socks5 restarted")
+			if err := service.Restart("slipgate-socks5"); err != nil {
+				out.Warning(fmt.Sprintf("Failed to restart slipgate-socks5: %v", err))
+			} else {
+				out.Success("  slipgate-socks5 restarted")
+			}
 		}
 	}
 
