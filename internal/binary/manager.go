@@ -44,7 +44,7 @@ func DownloadBase() string {
 	return stableDownloadBase
 }
 
-// latestDevTag queries GitHub for the most recent dev-* pre-release tag.
+// latestDevTag queries GitHub for the most recent *-dev pre-release tag.
 func latestDevTag() string {
 	resp, err := httpClient.Get(repoAPI + "?per_page=10")
 	if err != nil {
@@ -59,13 +59,14 @@ func latestDevTag() string {
 		return ""
 	}
 	var releases []struct {
-		TagName string `json:"tag_name"`
+		TagName    string `json:"tag_name"`
+		Prerelease bool   `json:"prerelease"`
 	}
 	if json.Unmarshal(body, &releases) != nil {
 		return ""
 	}
 	for _, r := range releases {
-		if strings.HasPrefix(r.TagName, "dev-") {
+		if r.Prerelease && strings.HasSuffix(r.TagName, "-dev") {
 			return r.TagName
 		}
 	}
