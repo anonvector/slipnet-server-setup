@@ -40,6 +40,7 @@ type InputField struct {
 	DependsOn       string   // only show if this key has a value
 	DependsOnValues []string // if set, only show when DependsOn value is one of these
 	Description string
+	CLIOnly     bool // register as CLI flag but skip interactive prompt
 }
 
 // SelectOption is a choice in a select input.

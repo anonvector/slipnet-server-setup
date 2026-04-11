@@ -213,7 +213,7 @@ func handleTunnelEdit(ctx *actions.Context) error {
 					currentRT = "txt"
 				}
 				var err error
-				newRT, err = prompt.String("DNS record type (txt, cname, a, aaaa, mx, ns, srv)", currentRT)
+				newRT, err = prompt.String("DNS record type (txt, cname, a, aaaa, mx, ns, srv, null, caa)", currentRT)
 				if err != nil {
 					return err
 				}

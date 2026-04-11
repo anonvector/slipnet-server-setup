@@ -164,6 +164,10 @@ func CollectInputs(a *actions.Action, existing map[string]string) (map[string]st
 			continue
 		}
 
+		if input.CLIOnly {
+			continue
+		}
+
 		if input.DependsOn != "" {
 			depVal := result[input.DependsOn]
 			if depVal == "" {
