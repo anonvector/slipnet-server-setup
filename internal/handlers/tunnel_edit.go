@@ -19,7 +19,19 @@ func handleTunnelEdit(ctx *actions.Context) error {
 	tag := ctx.GetArg("tag")
 
 	if tag == "" {
-		return actions.NewError(actions.TunnelEdit, "tunnel tag is required", nil)
+		if len(cfg.Tunnels) == 0 {
+			return actions.NewError(actions.TunnelEdit, "no tunnels configured", nil)
+		}
+		opts := make([]actions.SelectOption, len(cfg.Tunnels))
+		for i, t := range cfg.Tunnels {
+			label := fmt.Sprintf("%s (%s/%s)", t.Tag, t.Transport, t.Backend)
+			opts[i] = actions.SelectOption{Value: t.Tag, Label: label}
+		}
+		var err error
+		tag, err = prompt.Select("Select tunnel to edit", opts)
+		if err != nil {
+			return err
+		}
 	}
 
 	tunnel := cfg.GetTunnel(tag)
