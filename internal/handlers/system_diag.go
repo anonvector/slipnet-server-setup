@@ -7,12 +7,15 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anonvector/slipgate/internal/actions"
 	"github.com/anonvector/slipgate/internal/config"
 	"github.com/anonvector/slipgate/internal/service"
 	"github.com/anonvector/slipgate/internal/version"
+	"github.com/anonvector/slipgate/internal/warp"
 )
 
 func handleSystemDiag(ctx *actions.Context) error {
@@ -208,6 +211,10 @@ func handleSystemDiag(ctx *actions.Context) error {
 
 	// WARP
 	if cfg.Warp.Enabled {
+		out.Print("")
+		out.Print("  WARP Routing")
+		out.Print("  ────────────")
+
 		warpExists := service.Exists("slipgate-warp")
 		if warpExists {
 			status, _ := service.Status("slipgate-warp")
@@ -219,6 +226,88 @@ func handleSystemDiag(ctx *actions.Context) error {
 			}
 		} else {
 			check("WARP service", false, "enabled in config but service missing")
+		}
+
+		// WireGuard interface
+		wgUp := interfaceExists("wg0")
+		check("WireGuard interface (wg0)", wgUp,
+			boolStr(wgUp, "up", "missing — WARP tunnel not established"))
+
+		// WireGuard handshake
+		if wgUp {
+			hsAge, hsOK := wgLatestHandshake()
+			if hsOK {
+				check("WireGuard handshake", hsAge < 3*time.Minute,
+					boolStr(hsAge < 3*time.Minute,
+						fmt.Sprintf("%s ago", hsAge.Truncate(time.Second)),
+						fmt.Sprintf("%s ago — tunnel may be stale", hsAge.Truncate(time.Second))))
+			} else {
+				check("WireGuard handshake", false, "never completed — endpoint unreachable?")
+			}
+		}
+
+		// Routing table 200
+		hasRoute := routeTableHasDefault(warp.RouteTable)
+		check("Routing table 200", hasRoute,
+			boolStr(hasRoute, "default route via wg0", "no default route — traffic bypasses WARP"))
+
+		// Policy routing rules for managed UIDs
+		expectedUIDs := collectExpectedWarpUIDs(cfg)
+		rules := listIPRules(warp.RouteTable)
+		allRulesOK := true
+		for label, uid := range expectedUIDs {
+			found := uidInRules(uid, rules)
+			check(fmt.Sprintf("ip rule for %s (uid %d)", label, uid), found,
+				boolStr(found, "present", "MISSING — traffic from this user bypasses WARP"))
+			if !found {
+				allRulesOK = false
+			}
+		}
+		if len(expectedUIDs) == 0 {
+			info("WARP routing rules", "no managed UIDs found — no traffic will route through WARP")
+		} else if !allRulesOK {
+			out.Info("  Hint: run 'slipgate restart' or re-enable WARP to fix missing rules")
+		}
+
+		// SOCKS5 service user
+		if service.Exists("slipgate-socks5") {
+			actualUser := service.GetUser("slipgate-socks5")
+			userOK := actualUser == warp.SocksUser
+			check("SOCKS5 service user", userOK,
+				boolStr(userOK,
+					fmt.Sprintf("%s (correct)", actualUser),
+					fmt.Sprintf("%s — should be %s; run 'slipgate restart' to fix", actualUser, warp.SocksUser)))
+		}
+
+		// NaiveProxy service users
+		for _, t := range cfg.Tunnels {
+			if t.Transport == config.TransportNaive {
+				svcName := service.TunnelServiceName(t.Tag)
+				if service.Exists(svcName) {
+					actualUser := service.GetUser(svcName)
+					userOK := actualUser == warp.NaiveUser
+					check(fmt.Sprintf("[%s] NaiveProxy user", t.Tag), userOK,
+						boolStr(userOK,
+							fmt.Sprintf("%s (correct)", actualUser),
+							fmt.Sprintf("%s — should be %s; re-enable WARP to fix", actualUser, warp.NaiveUser)))
+				}
+			}
+		}
+
+		// Outbound IP verification: compare default vs WARP-routed IP
+		if wgUp && hasRoute {
+			defaultIP := fetchOutboundIP("")
+			warpIP := fetchOutboundIP(warp.SocksUser)
+			if defaultIP != "" && warpIP != "" {
+				ipDiff := defaultIP != warpIP
+				check("WARP outbound IP", ipDiff,
+					boolStr(ipDiff,
+						fmt.Sprintf("%s (default: %s)", warpIP, defaultIP),
+						fmt.Sprintf("%s — same as default, WARP not routing traffic", warpIP)))
+			} else if defaultIP != "" && warpIP == "" {
+				check("WARP outbound IP", false,
+					"could not reach ipify.org as "+warp.SocksUser+" — traffic may be blackholed")
+			}
 		}
 	}
 
@@ -319,4 +408,131 @@ func isPortListening(port int, proto string) bool {
 		return false
 	}
 	return false
+}
+
+// ── WARP routing helpers ──────────────────────────────────────
+
+// interfaceExists checks if a network interface exists and is up.
+// WireGuard interfaces report state UNKNOWN (no physical link state),
+// so we accept both UP and UNKNOWN in the flags/state line.
+func interfaceExists(name string) bool {
+	out, err := exec.Command("ip", "link", "show", "dev", name).Output()
+	if err != nil {
+		return false
+	}
+	// First line looks like: "N: wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu ..."
+	// or state field: "state UNKNOWN"
+	first := strings.SplitN(string(out), "\n", 2)[0]
+	return strings.Contains(first, ",UP") || strings.Contains(first, "state UNKNOWN")
+}
+
+// wgLatestHandshake returns the age of the most recent WireGuard handshake
+// on wg0. Returns (age, true) if a handshake has occurred, or (0, false) if
+// no handshake has ever completed.
+func wgLatestHandshake() (time.Duration, bool) {
+	out, err := exec.Command("wg", "show", "wg0", "latest-handshakes").Output()
+	if err != nil {
+		return 0, false
+	}
+	// Output format: "<peer-pubkey>\t<unix-timestamp>\n"
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) < 2 {
+		return 0, false
+	}
+	ts, err := strconv.ParseInt(fields[1], 10, 64)
+	if err != nil || ts == 0 {
+		return 0, false
+	}
+	return time.Since(time.Unix(ts, 0)), true
+}
+
+// routeTableHasDefault checks if a routing table has a default route.
+func routeTableHasDefault(table int) bool {
+	out, err := exec.Command("ip", "route", "show", "table", strconv.Itoa(table), "default").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) != ""
+}
+
+// listIPRules returns all ip rules pointing to a given table as raw text lines.
+func listIPRules(table int) []string {
+	out, err := exec.Command("ip", "rule", "show").Output()
+	if err != nil {
+		return nil
+	}
+	tableStr := fmt.Sprintf("lookup %d", table)
+	var matches []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, tableStr) {
+			matches = append(matches, line)
+		}
+	}
+	return matches
+}
+
+// uidInRules checks if any rule line contains a uidrange matching the given uid.
+func uidInRules(uid int, rules []string) bool {
+	// Rules look like: "32765: from all uidrange 998-998 lookup 200"
+	target := fmt.Sprintf("%d-%d", uid, uid)
+	for _, r := range rules {
+		if strings.Contains(r, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectExpectedWarpUIDs returns a map of label→uid for all users that
+// should have WARP routing rules.
+func collectExpectedWarpUIDs(cfg *config.Config) map[string]int {
+	uids := make(map[string]int)
+
+	for _, u := range cfg.Users {
+		if uid := lookupSystemUID(u.Username); uid > 0 {
+			uids[u.Username] = uid
+		}
+	}
+	if uid := lookupSystemUID(warp.SocksUser); uid > 0 {
+		uids[warp.SocksUser] = uid
+	}
+	if uid := lookupSystemUID(warp.NaiveUser); uid > 0 {
+		uids[warp.NaiveUser] = uid
+	}
+
+	return uids
+}
+
+// lookupSystemUID returns the numeric UID for a system user, or -1 if not found.
+func lookupSystemUID(username string) int {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return -1
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return -1
+	}
+	return uid
+}
+
+// fetchOutboundIP queries api.ipify.org to determine the outbound IP.
+// If runAs is non-empty, the request is executed as that system user
+// via sudo so it inherits the user's policy-routing rules.
+func fetchOutboundIP(runAs string) string {
+	var cmd *exec.Cmd
+	if runAs != "" {
+		cmd = exec.Command("sudo", "-u", runAs, "curl", "-s", "-m", "5", "https://api.ipify.org")
+	} else {
+		cmd = exec.Command("curl", "-s", "-m", "5", "https://api.ipify.org")
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	ip := strings.TrimSpace(string(out))
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+	return ip
 }
