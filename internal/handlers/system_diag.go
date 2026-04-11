@@ -294,21 +294,6 @@ func handleSystemDiag(ctx *actions.Context) error {
 			}
 		}
 
-		// Outbound IP verification: compare default vs WARP-routed IP
-		if wgUp && hasRoute {
-			defaultIP := fetchOutboundIP("")
-			warpIP := fetchOutboundIP(warp.SocksUser)
-			if defaultIP != "" && warpIP != "" {
-				ipDiff := defaultIP != warpIP
-				check("WARP outbound IP", ipDiff,
-					boolStr(ipDiff,
-						fmt.Sprintf("%s (default: %s)", warpIP, defaultIP),
-						fmt.Sprintf("%s — same as default, WARP not routing traffic", warpIP)))
-			} else if defaultIP != "" && warpIP == "" {
-				check("WARP outbound IP", false,
-					"could not reach ipify.org as "+warp.SocksUser+" — traffic may be blackholed")
-			}
-		}
 	}
 
 	// ── Orphaned Services ───────────────────────────────────
@@ -516,23 +501,3 @@ func lookupSystemUID(username string) int {
 	return uid
 }
 
-// fetchOutboundIP queries api.ipify.org to determine the outbound IP.
-// If runAs is non-empty, the request is executed as that system user
-// via sudo so it inherits the user's policy-routing rules.
-func fetchOutboundIP(runAs string) string {
-	var cmd *exec.Cmd
-	if runAs != "" {
-		cmd = exec.Command("sudo", "-u", runAs, "curl", "-s", "-m", "5", "https://api.ipify.org")
-	} else {
-		cmd = exec.Command("curl", "-s", "-m", "5", "https://api.ipify.org")
-	}
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	ip := strings.TrimSpace(string(out))
-	if net.ParseIP(ip) == nil {
-		return ""
-	}
-	return ip
-}
