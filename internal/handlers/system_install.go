@@ -533,11 +533,12 @@ func handleSystemInstall(ctx *actions.Context) error {
 	}
 
 	// ── Step 6: Create first user ──────────────────────────────────
-	// Only offer user creation when at least one domain-based tunnel exists.
-	hasDomainTunnel := false
+	// Offer user creation when at least one tunnel needs credentials
+	// (domain-based tunnels or direct transports with SSH backend like StunTLS).
+	needsUser := false
 	for _, t := range allTunnels {
-		if t.Domain != "" {
-			hasDomainTunnel = true
+		if t.Domain != "" || t.Backend == config.BackendSSH {
+			needsUser = true
 			break
 		}
 	}
@@ -546,7 +547,7 @@ func handleSystemInstall(ctx *actions.Context) error {
 	socksPass := ""
 	createUser := false
 
-	if hasDomainTunnel {
+	if needsUser {
 		out.Print("")
 		out.Print("  ── User Setup ──────────────────────────────────────")
 		out.Print("")
