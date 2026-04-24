@@ -376,10 +376,14 @@ func collectUserUIDs(cfg *config.Config) []int {
 		uids = append(uids, uid)
 	}
 
-	// Dedicated NaiveProxy user
-	if uid := lookupUID(NaiveUser); uid > 0 {
-		uids = append(uids, uid)
-	}
+	// NaiveProxy's user (slipgate-naive) is intentionally NOT routed
+	// through WARP. Caddy is just an HTTPS-wrapped TCP forwarder — actual
+	// proxied traffic terminates on 127.0.0.1:1080 (slipgate-socks) or
+	// 127.0.0.1:22 (per-tunnel SSH user), both of which ARE in the WARP
+	// table. So proxied egress already routes through WARP at the next
+	// hop. Putting Caddy itself in the WARP table is redundant and breaks
+	// ACME cert acquisition because Let's Encrypt's API isn't reliably
+	// reachable through WARP from cloud-provider networks.
 
 	return uids
 }

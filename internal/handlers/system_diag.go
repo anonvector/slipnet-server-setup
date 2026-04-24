@@ -481,9 +481,8 @@ func collectExpectedWarpUIDs(cfg *config.Config) map[string]int {
 	if uid := lookupSystemUID(warp.SocksUser); uid > 0 {
 		uids[warp.SocksUser] = uid
 	}
-	if uid := lookupSystemUID(warp.NaiveUser); uid > 0 {
-		uids[warp.NaiveUser] = uid
-	}
+	// slipgate-naive (Caddy) is intentionally NOT WARP-routed — see
+	// warp.collectUserUIDs for the reason. Don't expect a rule for it.
 
 	return uids
 }
