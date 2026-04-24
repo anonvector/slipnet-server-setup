@@ -178,19 +178,61 @@ func handleQuickWizard(ctx *actions.Context) error {
 		})
 	}
 
-	// 3. Create user
+	// 3. Pick or create user.
+	//
+	// If the wizard is re-run on a box that already has users, default to
+	// reusing one — prompting for a fresh username/password would silently
+	// reset credentials on a username collision (system.AddSSHUser calls
+	// chpasswd, cfg.AddUser overwrites) and break any already-deployed
+	// client configs.
+	var existingUsers []config.UserConfig
+	if existing, loadErr := config.Load(); loadErr == nil {
+		existingUsers = existing.Users
+	}
+
 	out.Print("")
-	username, err := prompt.String("Username", "user1")
-	if err != nil {
-		return err
+	var username, password string
+	reuseExistingUser := false
+
+	if len(existingUsers) > 0 {
+		opts := make([]actions.SelectOption, 0, len(existingUsers)+1)
+		for _, u := range existingUsers {
+			opts = append(opts, actions.SelectOption{Value: u.Username, Label: "Use existing: " + u.Username})
+		}
+		opts = append(opts, actions.SelectOption{Value: "", Label: "Add a new user"})
+
+		choice, err := prompt.Select("User for new tunnels", opts)
+		if err != nil {
+			return err
+		}
+		if choice != "" {
+			for _, u := range existingUsers {
+				if u.Username == choice {
+					username = u.Username
+					password = u.Password
+					reuseExistingUser = true
+					break
+				}
+			}
+		}
 	}
-	password, err := prompt.String("Password (leave blank to generate)", "")
-	if err != nil {
-		return err
-	}
-	if password == "" {
-		password = system.GeneratePassword(16)
-		out.Info(fmt.Sprintf("Generated password: %s", password))
+
+	if !reuseExistingUser {
+		var err error
+		username, err = prompt.String("Username", "user1")
+		if err != nil {
+			return err
+		}
+		password, err = prompt.String("Password (leave blank to generate)", "")
+		if err != nil {
+			return err
+		}
+		if password == "" {
+			password = system.GeneratePassword(16)
+			out.Info(fmt.Sprintf("Generated password: %s", password))
+		} else if err := config.ValidatePassword(password); err != nil {
+			return actions.NewError(actions.QuickWizard, err.Error(), nil)
+		}
 	}
 
 	// ── Setup ──────────────────────────────────────────────────
@@ -426,15 +468,21 @@ func handleQuickWizard(ctx *actions.Context) error {
 		return actions.NewError(actions.QuickWizard, "failed to save config", err)
 	}
 
-	// Create SSH user
-	if err := system.AddSSHUser(username, password); err != nil {
-		out.Warning("Failed to create SSH user: " + err.Error())
+	// Create SSH user (skip when reusing an existing one — otherwise
+	// AddSSHUser would reset the system password and cfg.AddUser would
+	// overwrite the stored credentials).
+	if reuseExistingUser {
+		out.Info(fmt.Sprintf("Using existing user %q", username))
+	} else {
+		if err := system.AddSSHUser(username, password); err != nil {
+			out.Warning("Failed to create SSH user: " + err.Error())
+		}
+		cfg.AddUser(config.UserConfig{Username: username, Password: password})
+		if err := cfg.Save(); err != nil {
+			return actions.NewError(actions.QuickWizard, "failed to save config", err)
+		}
+		out.Success(fmt.Sprintf("User %q created", username))
 	}
-	cfg.AddUser(config.UserConfig{Username: username, Password: password})
-	if err := cfg.Save(); err != nil {
-		return actions.NewError(actions.QuickWizard, "failed to save config", err)
-	}
-	out.Success(fmt.Sprintf("User %q created", username))
 
 	// Check if any transport is direct SOCKS
 	hasDirectSOCKS := false
@@ -449,14 +497,17 @@ func handleQuickWizard(ctx *actions.Context) error {
 		network.FreePort(1080, "tcp")
 	}
 
-	// Setup SOCKS5 proxy
+	// Setup SOCKS5 proxy. Use the multi-user variants so any pre-existing
+	// users keep their access when the wizard is re-run — the single-user
+	// Setup*WithAuth helpers would otherwise replace the creds file with
+	// just the one user from this run.
 	if needsSOCKS {
-		if err := proxy.SetupSOCKSWithAuth(username, password); err != nil {
+		if err := proxy.SetupSOCKSWithUsers(cfg.Users); err != nil {
 			out.Warning("Failed to setup SOCKS5 proxy: " + err.Error())
 		}
 	}
 	if hasDirectSOCKS {
-		if err := proxy.SetupSOCKSExternal(username, password); err != nil {
+		if err := proxy.SetupSOCKSExternalWithUsers(cfg.Users); err != nil {
 			out.Warning("Failed to setup SOCKS5 proxy: " + err.Error())
 		}
 	}

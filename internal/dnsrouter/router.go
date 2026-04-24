@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anonvector/slipgate/internal/config"
@@ -32,14 +33,21 @@ type Router struct {
 
 // backendConn is a persistent UDP connection to a backend (dnstt-server).
 type backendConn struct {
-	conn    *net.UDPConn
-	pending sync.Map // txID (uint16) → *pendingQuery
+	conn     *net.UDPConn
+	pending  sync.Map      // serverTxID (uint16) → *pendingQuery
+	nextTxID atomic.Uint32 // counter for server-side TXID allocation
 }
 
 // pendingQuery tracks a forwarded query so the response can be routed back.
+// originalTxID is the client's TXID, which we restore before writing the
+// response back. Multiplexing clients over a single backend UDP socket
+// requires server-generated TXIDs; using the client's TXID directly would
+// cause cross-client collisions (two clients easily pick the same 16-bit ID)
+// and mis-deliver responses.
 type pendingQuery struct {
-	clientAddr *net.UDPAddr
-	timestamp  time.Time
+	clientAddr   *net.UDPAddr
+	originalTxID uint16
+	timestamp    time.Time
 }
 
 // New creates a new DNS router.
@@ -143,16 +151,38 @@ func (r *Router) handleQuery(packet []byte, clientAddr *net.UDPAddr) {
 	if len(packet) < 2 {
 		return
 	}
-	txID := binary.BigEndian.Uint16(packet[:2])
+	originalTxID := binary.BigEndian.Uint16(packet[:2])
 
-	// Store pending query so response reader can route it back
-	bc.pending.Store(txID, &pendingQuery{
-		clientAddr: clientAddr,
-		timestamp:  time.Now(),
-	})
+	pq := &pendingQuery{
+		clientAddr:   clientAddr,
+		originalTxID: originalTxID,
+		timestamp:    time.Now(),
+	}
+
+	// Allocate a server-side TXID that isn't currently in use. LoadOrStore
+	// reserves the slot atomically; if it's already taken (rare — pending
+	// entries expire after 10s and the allocation space is 65536), advance.
+	var serverTxID uint16
+	var stored bool
+	for i := 0; i < 65536; i++ {
+		candidate := uint16(bc.nextTxID.Add(1))
+		if _, loaded := bc.pending.LoadOrStore(candidate, pq); !loaded {
+			serverTxID = candidate
+			stored = true
+			break
+		}
+	}
+	if !stored {
+		log.Printf("dnsrouter: pending TXID space exhausted for backend %s, dropping query from %s", backend, clientAddr)
+		return
+	}
+
+	// Rewrite the query's TXID to the server-side value. `packet` was copied
+	// in the Listen loop before being handed off, so it's safe to mutate.
+	binary.BigEndian.PutUint16(packet[:2], serverTxID)
 
 	if _, err := bc.conn.Write(packet); err != nil {
-		bc.pending.Delete(txID)
+		bc.pending.Delete(serverTxID)
 		log.Printf("write to %s: %v", backend, err)
 	}
 }
@@ -201,13 +231,15 @@ func (r *Router) readBackendResponses(bc *backendConn, addr string) {
 			continue
 		}
 
-		txID := binary.BigEndian.Uint16(buf[:2])
-		val, ok := bc.pending.LoadAndDelete(txID)
+		serverTxID := binary.BigEndian.Uint16(buf[:2])
+		val, ok := bc.pending.LoadAndDelete(serverTxID)
 		if !ok {
 			continue // no matching query (stale or duplicate)
 		}
 
 		pq := val.(*pendingQuery)
+		// Restore the client's original TXID before forwarding.
+		binary.BigEndian.PutUint16(buf[:2], pq.originalTxID)
 		r.conn.WriteToUDP(buf[:n], pq.clientAddr)
 	}
 }

@@ -81,6 +81,26 @@ func ValidateTagName(tag string) error {
 	return validateTag(tag)
 }
 
+// ValidatePassword rejects characters that can't round-trip through every
+// place slipgate serializes a password: `chpasswd` stdin (`user:pass` lines,
+// so ':' splits and '\n' terminates), and the SOCKS5 creds file (same
+// `user:pass\n` framing). Also rejects control characters, which are
+// generally unsafe in shadow-file passwords.
+func ValidatePassword(p string) error {
+	if p == "" {
+		return fmt.Errorf("password cannot be empty")
+	}
+	for i, r := range p {
+		if r == ':' {
+			return fmt.Errorf("password cannot contain ':' (position %d)", i)
+		}
+		if r < 0x20 || r == 0x7F {
+			return fmt.Errorf("password cannot contain control characters (position %d)", i)
+		}
+	}
+	return nil
+}
+
 func validateTag(tag string) error {
 	if tag == "" {
 		return fmt.Errorf("tag is required")

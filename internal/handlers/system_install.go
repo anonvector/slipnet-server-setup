@@ -571,6 +571,8 @@ func handleSystemInstall(ctx *actions.Context) error {
 		if password == "" {
 			password = system.GeneratePassword(16)
 			out.Info(fmt.Sprintf("Generated password: %s", password))
+		} else if err := config.ValidatePassword(password); err != nil {
+			return actions.NewError(actions.SystemInstall, err.Error(), nil)
 		}
 
 		if err := system.AddSSHUser(username, password); err != nil {

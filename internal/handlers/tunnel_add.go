@@ -122,7 +122,42 @@ func handleTunnelAdd(ctx *actions.Context) error {
 		out.Warning(fmt.Sprintf("%d succeeded, %d failed", len(succeeded), len(failed)))
 	}
 
+	// Offer to create a user for tunnels that authenticate through our SSH /
+	// SOCKS backends. Naive and external tunnels manage their own creds.
+	if len(succeeded) > 0 && tunnelsNeedUser(cfg, succeeded) {
+		out.Print("")
+		defaultYes := len(cfg.Users) == 0
+		var create bool
+		var err error
+		if defaultYes {
+			create, err = prompt.ConfirmYes("Create a user now?")
+		} else {
+			create, err = prompt.Confirm("Create another user now?")
+		}
+		if err == nil && create {
+			if err := createUserInteractive(cfg, out, ""); err != nil {
+				out.Warning("User creation failed: " + err.Error())
+			}
+		}
+	}
+
 	return nil
+}
+
+// tunnelsNeedUser reports whether any of the just-added tunnels authenticates
+// via our shared SSH / SOCKS credential pool. Naive tunnels carry their own
+// per-tunnel basic-auth pair and external tunnels are opaque to us.
+func tunnelsNeedUser(cfg *config.Config, tags []string) bool {
+	for _, tag := range tags {
+		t := cfg.GetTunnel(tag)
+		if t == nil {
+			continue
+		}
+		if t.Backend == config.BackendSSH || t.Backend == config.BackendSOCKS {
+			return true
+		}
+	}
+	return false
 }
 
 func addSingleTunnel(ctx *actions.Context, cfg *config.Config, transport_, backend, tag, domain, sharedKeyDir string) error {

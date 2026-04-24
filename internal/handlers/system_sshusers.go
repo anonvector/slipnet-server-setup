@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/anonvector/slipgate/internal/actions"
@@ -13,6 +14,11 @@ import (
 	"github.com/anonvector/slipgate/internal/warp"
 )
 
+// bulkAddMax caps the number of users per bulk_add invocation. A single call
+// only triggers one SOCKS reload + one WARP rule sync regardless of N, so
+// the cap is about bounding useradd/chpasswd time, not cascading restarts.
+const bulkAddMax = 500
+
 func handleSystemUsers(ctx *actions.Context) error {
 	cfg := ctx.Config.(*config.Config)
 	out := ctx.Output
@@ -23,6 +29,7 @@ func handleSystemUsers(ctx *actions.Context) error {
 		var err error
 		action, err = prompt.Select("Action", []actions.SelectOption{
 			{Value: "add", Label: "Add user"},
+			{Value: "bulk_add", Label: "Add multiple users (random creds)"},
 			{Value: "remove", Label: "Remove user"},
 			{Value: "list", Label: "List users & configs"},
 		})
@@ -72,62 +79,98 @@ func handleSystemUsers(ctx *actions.Context) error {
 		}
 
 	case "add":
-		if username == "" {
-			var err error
-			username, err = prompt.String("Username", "")
+		if err := createUserInteractive(cfg, out, username); err != nil {
+			return actions.NewError(actions.SystemUsers, err.Error(), nil)
+		}
+
+	case "bulk_add":
+		count, err := resolveBulkCount(ctx)
+		if err != nil {
+			return actions.NewError(actions.SystemUsers, err.Error(), nil)
+		}
+
+		prefix := strings.TrimSpace(ctx.GetArg("prefix"))
+		if prefix == "" {
+			prefix, err = prompt.String("Username prefix", "user")
 			if err != nil {
 				return err
 			}
+			prefix = strings.TrimSpace(prefix)
+			if prefix == "" {
+				prefix = "user"
+			}
 		}
-		if username == "" {
-			return actions.NewError(actions.SystemUsers, "username is required", nil)
-		}
-		if cfg.GetUser(username) != nil {
-			return actions.NewError(actions.SystemUsers, fmt.Sprintf("user %q already exists", username), nil)
-		}
-
-		password, err := prompt.String("Password (leave blank to generate)", "")
-		if err != nil {
-			return err
-		}
-		if password == "" {
-			password = system.GeneratePassword(16)
-			out.Info(fmt.Sprintf("Generated password: %s", password))
+		if err := config.ValidateTagName(prefix); err != nil {
+			// Usernames share the tag-name character set (lowercase letters,
+			// numbers, hyphens) so they round-trip safely through useradd and
+			// sshd_config. Reject anything else upfront.
+			return actions.NewError(actions.SystemUsers, "prefix "+err.Error(), nil)
 		}
 
-		// Create SSH system user
-		if err := system.AddSSHUser(username, password); err != nil {
-			return actions.NewError(actions.SystemUsers, "failed to create SSH user", err)
+		type newCred struct{ Username, Password string }
+		created := make([]newCred, 0, count)
+
+		next := nextUsernameIndex(cfg, prefix)
+		for i := 0; i < count; i++ {
+			uname := fmt.Sprintf("%s%d", prefix, next)
+			next++
+			if cfg.GetUser(uname) != nil {
+				i--
+				continue
+			}
+			password := system.GeneratePassword(16)
+
+			if err := system.AddSSHUser(uname, password); err != nil {
+				out.Warning(fmt.Sprintf("failed to create %s: %v (skipping)", uname, err))
+				continue
+			}
+			cfg.AddUser(config.UserConfig{Username: uname, Password: password})
+			created = append(created, newCred{uname, password})
 		}
 
-		// Save to config first so cfg.Users includes the new user
-		cfg.AddUser(config.UserConfig{Username: username, Password: password})
+		if len(created) == 0 {
+			return actions.NewError(actions.SystemUsers, "no users were created", nil)
+		}
 
-		// Restart SOCKS proxy with ALL users
+		// Save first — the config file is the source of truth. If this
+		// fails we bail without touching SOCKS, so a retry just rewrites
+		// the same state instead of leaving derived state ahead of disk.
+		if err := cfg.Save(); err != nil {
+			return actions.NewError(actions.SystemUsers, "failed to save config", err)
+		}
+
+		// One SOCKS reload for the whole batch. With the hot-reload path this
+		// is a single SIGHUP to the SOCKS service, not N restarts.
 		if cfg.Warp.Enabled {
 			proxy.RunAsUser = warp.SocksUser
 		}
 		if err := proxy.SetupSOCKSWithUsers(cfg.Users); err != nil {
 			out.Warning("Failed to update SOCKS proxy auth: " + err.Error())
 		}
-		if err := cfg.Save(); err != nil {
-			return actions.NewError(actions.SystemUsers, "failed to save config", err)
-		}
 
-		out.Success(fmt.Sprintf("User %q added (SSH + SOCKS)", username))
-
-		// Update WARP routing rules for the new user
+		// One WARP live rule sync for the whole batch.
 		if cfg.Warp.Enabled {
 			if err := warp.RefreshRouting(cfg); err != nil {
 				out.Warning("Failed to update WARP routing: " + err.Error())
 			}
 		}
 
-		// Show configs if tunnels exist
+		out.Success(fmt.Sprintf("Created %d users", len(created)))
+		out.Print("")
+		for _, c := range created {
+			out.Print(fmt.Sprintf("  %s : %s", c.Username, c.Password))
+		}
+		out.Print("")
+
 		if len(cfg.Tunnels) > 0 {
-			out.Print("")
-			out.Info("Configs for this user:")
-			showUserConfigs(cfg, username, password, out)
+			show, _ := prompt.Confirm("Show tunnel configs for each user?")
+			if show {
+				for _, c := range created {
+					out.Print("")
+					out.Print(fmt.Sprintf("── %s ──", c.Username))
+					showUserConfigs(cfg, c.Username, c.Password, out)
+				}
+			}
 		}
 
 	case "remove":
@@ -172,6 +215,118 @@ func handleSystemUsers(ctx *actions.Context) error {
 	}
 
 	return nil
+}
+
+// createUserInteractive walks the operator through adding one user: prompts
+// for name and password (generating a random one if blank), creates the
+// system user, triggers the live SOCKS credential reload and WARP rule sync,
+// and prints the resulting tunnel configs. Pass providedUsername to skip the
+// first prompt (e.g. when the name came in as a CLI arg); pass "" to prompt.
+// Used from both the `users add` action and the post-`tunnel add` offer.
+func createUserInteractive(cfg *config.Config, out actions.OutputWriter, providedUsername string) error {
+	username := providedUsername
+	if username == "" {
+		var err error
+		username, err = prompt.String("Username", "")
+		if err != nil {
+			return err
+		}
+	}
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return fmt.Errorf("username is required")
+	}
+	if cfg.GetUser(username) != nil {
+		return fmt.Errorf("user %q already exists", username)
+	}
+
+	password, err := prompt.String("Password (leave blank to generate)", "")
+	if err != nil {
+		return err
+	}
+	if password == "" {
+		password = system.GeneratePassword(16)
+		out.Info(fmt.Sprintf("Generated password: %s", password))
+	} else if err := config.ValidatePassword(password); err != nil {
+		return err
+	}
+
+	if err := system.AddSSHUser(username, password); err != nil {
+		return fmt.Errorf("failed to create SSH user: %w", err)
+	}
+
+	cfg.AddUser(config.UserConfig{Username: username, Password: password})
+
+	// Save before SOCKS so the config file is always at least as current
+	// as the SOCKS creds file; a failed save leaves SOCKS untouched.
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	if cfg.Warp.Enabled {
+		proxy.RunAsUser = warp.SocksUser
+	}
+	if err := proxy.SetupSOCKSWithUsers(cfg.Users); err != nil {
+		out.Warning("Failed to update SOCKS proxy auth: " + err.Error())
+	}
+
+	if cfg.Warp.Enabled {
+		if err := warp.RefreshRouting(cfg); err != nil {
+			out.Warning("Failed to update WARP routing: " + err.Error())
+		}
+	}
+
+	out.Success(fmt.Sprintf("User %q added (SSH + SOCKS)", username))
+
+	if len(cfg.Tunnels) > 0 {
+		out.Print("")
+		out.Info("Configs for this user:")
+		showUserConfigs(cfg, username, password, out)
+	}
+	return nil
+}
+
+// resolveBulkCount gets the bulk_add count either from the CLI arg or via
+// interactive prompt, and validates it.
+func resolveBulkCount(ctx *actions.Context) (int, error) {
+	raw := strings.TrimSpace(ctx.GetArg("count"))
+	if raw == "" {
+		var err error
+		raw, err = prompt.String("How many users to create", "10")
+		if err != nil {
+			return 0, err
+		}
+		raw = strings.TrimSpace(raw)
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("count must be a positive integer")
+	}
+	if n > bulkAddMax {
+		return 0, fmt.Errorf("count cannot exceed %d", bulkAddMax)
+	}
+	return n, nil
+}
+
+// nextUsernameIndex finds the lowest 1-based index N such that `<prefix>N`
+// through `<prefix>(N+count-1)` do not already exist. Callers still check
+// GetUser in the allocation loop in case of concurrent edits.
+func nextUsernameIndex(cfg *config.Config, prefix string) int {
+	highest := 0
+	for _, u := range cfg.Users {
+		if !strings.HasPrefix(u.Username, prefix) {
+			continue
+		}
+		suffix := u.Username[len(prefix):]
+		n, err := strconv.Atoi(suffix)
+		if err != nil {
+			continue
+		}
+		if n > highest {
+			highest = n
+		}
+	}
+	return highest + 1
 }
 
 func showUserConfigs(cfg *config.Config, username, password string, out actions.OutputWriter) {

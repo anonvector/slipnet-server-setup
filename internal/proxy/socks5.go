@@ -14,8 +14,13 @@ import (
 )
 
 // Server is a SOCKS5 proxy server supporting CONNECT with optional auth.
+// Credentials can be swapped at runtime via SetCredentials — used to
+// propagate user add/remove events without restarting the listener and
+// dropping live client connections.
 type Server struct {
-	listenAddr  string
+	listenAddr string
+
+	credsMu     sync.RWMutex
 	credentials map[string]string // username → password (empty map = no auth)
 }
 
@@ -35,6 +40,33 @@ func NewServerMulti(addr string, creds map[string]string) *Server {
 		creds = make(map[string]string)
 	}
 	return &Server{listenAddr: addr, credentials: creds}
+}
+
+// SetCredentials replaces the server's credential set atomically. Existing
+// connections are unaffected; new connections authenticate against the new
+// set. Pass an empty map to disable auth.
+func (s *Server) SetCredentials(creds map[string]string) {
+	if creds == nil {
+		creds = make(map[string]string)
+	}
+	s.credsMu.Lock()
+	s.credentials = creds
+	s.credsMu.Unlock()
+}
+
+// hasAuth reports whether auth is currently required.
+func (s *Server) hasAuth() bool {
+	s.credsMu.RLock()
+	defer s.credsMu.RUnlock()
+	return len(s.credentials) > 0
+}
+
+// checkCredential reports whether (user, pass) is in the current cred set.
+func (s *Server) checkCredential(user, pass string) bool {
+	s.credsMu.RLock()
+	defer s.credsMu.RUnlock()
+	expected, ok := s.credentials[user]
+	return ok && expected == pass
 }
 
 // ListenAndServe starts the SOCKS5 server (blocking).
@@ -97,7 +129,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	if len(s.credentials) > 0 {
+	if s.hasAuth() {
 		// Require username/password auth (method 0x02)
 		conn.Write([]byte{0x05, 0x02})
 		if !s.authenticate(conn) {
@@ -214,7 +246,7 @@ func (s *Server) authenticate(conn net.Conn) bool {
 	}
 	pass := string(buf[:plen])
 
-	if expected, ok := s.credentials[user]; ok && expected == pass {
+	if s.checkCredential(user, pass) {
 		conn.Write([]byte{0x01, 0x00}) // success
 		return true
 	}

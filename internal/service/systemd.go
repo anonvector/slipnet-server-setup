@@ -20,6 +20,7 @@ type Unit struct {
 	Name        string
 	Description string
 	ExecStart   string
+	ExecReload  string
 	User        string
 	Group       string
 	After       string
@@ -47,6 +48,9 @@ LogRateLimitIntervalSec=30
 LogRateLimitBurst=100
 `, u.Description, u.After, u.User, u.Group, u.ExecStart, u.Restart)
 
+	if u.ExecReload != "" {
+		content += fmt.Sprintf("ExecReload=%s\n", u.ExecReload)
+	}
 	if u.WorkingDir != "" {
 		content += fmt.Sprintf("WorkingDirectory=%s\n", u.WorkingDir)
 	}
@@ -85,6 +89,22 @@ func Stop(name string) error {
 // Restart restarts a service.
 func Restart(name string) error {
 	return run("systemctl", "restart", name+".service")
+}
+
+// Reload asks systemd to run the service's ExecReload (typically sending
+// SIGHUP to the main pid). Does not drop live connections.
+func Reload(name string) error {
+	return run("systemctl", "reload", name+".service")
+}
+
+// ReadUnitFile returns the raw unit file contents, or empty string if absent.
+func ReadUnitFile(name string) string {
+	path := filepath.Join(systemdDir, name+".service")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // Status returns the active state of a service.

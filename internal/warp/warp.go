@@ -3,10 +3,12 @@ package warp
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,7 +133,11 @@ func IsSetUp() bool {
 	return err == nil
 }
 
-// RefreshRouting regenerates the wg0.conf with current user UIDs and restarts if running.
+// RefreshRouting regenerates wg0.conf with current user UIDs and, if WARP is
+// running, syncs the live `ip rule` uidrange entries in place. The WireGuard
+// interface is NOT restarted — doing so would drop every in-flight TCP stream
+// routed through WARP (naiveproxy sessions, SOCKS traffic, etc.) every time a
+// user is added or removed.
 func RefreshRouting(cfg *config.Config) error {
 	if !IsSetUp() {
 		return nil
@@ -140,10 +146,100 @@ func RefreshRouting(cfg *config.Config) error {
 		return err
 	}
 	if IsRunning() {
-		// Bring interface down and back up with new config
-		_ = runQuiet("systemctl", "restart", ServiceName+".service")
+		syncLiveRules(collectUserUIDs(cfg))
 	}
 	return nil
+}
+
+// syncLiveRules reconciles the kernel's `ip rule` state for our routing table
+// against the desired UID set, adding missing entries and removing obsolete
+// ones. Rules for UIDs that are in both sets are left untouched.
+func syncLiveRules(desired []int) {
+	want := make(map[int]bool, len(desired))
+	for _, uid := range desired {
+		want[uid] = true
+	}
+
+	have, err := listLiveRuleUIDs()
+	if err != nil {
+		log.Printf("warp: list live ip rules: %v (skipping live sync; run `systemctl restart %s` to pick up changes)", err, ServiceName)
+		return
+	}
+	haveSet := make(map[int]bool, len(have))
+	for _, uid := range have {
+		haveSet[uid] = true
+	}
+
+	table := strconv.Itoa(RouteTable)
+	var addFails, delFails int
+	for uid := range want {
+		if !haveSet[uid] {
+			if err := ipRule("add", uid, table); err != nil {
+				log.Printf("warp: %v", err)
+				addFails++
+			}
+		}
+	}
+	for uid := range haveSet {
+		if !want[uid] {
+			if err := ipRule("del", uid, table); err != nil {
+				log.Printf("warp: %v", err)
+				delFails++
+			}
+		}
+	}
+	if addFails+delFails > 0 {
+		log.Printf("warp: syncLiveRules: %d add / %d del failures — affected users may not route through WARP", addFails, delFails)
+	}
+}
+
+// ipRule runs `ip rule <op> uidrange U-U table T` and returns an error
+// that includes the combined stdout/stderr. Used by syncLiveRules so
+// failures are diagnosable instead of silently dropped.
+func ipRule(op string, uid int, table string) error {
+	out, err := exec.Command("ip", "rule", op, "uidrange",
+		fmt.Sprintf("%d-%d", uid, uid), "table", table).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ip rule %s uid=%d: %w: %s",
+			op, uid, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// listLiveRuleUIDs returns the single-UID uidrange entries currently pointing
+// at our routing table. Lines from `ip rule show table N` look like:
+//
+//	32766: from all lookup 200 uidrange 1001-1001
+func listLiveRuleUIDs() ([]int, error) {
+	out, err := exec.Command("ip", "rule", "show", "table", strconv.Itoa(RouteTable)).Output()
+	if err != nil {
+		return nil, err
+	}
+	var uids []int
+	for _, line := range strings.Split(string(out), "\n") {
+		idx := strings.Index(line, "uidrange ")
+		if idx < 0 {
+			continue
+		}
+		rest := strings.Fields(line[idx+len("uidrange "):])
+		if len(rest) == 0 {
+			continue
+		}
+		parts := strings.SplitN(rest[0], "-", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		lo, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		hi, err := strconv.Atoi(parts[1])
+		if err != nil || lo != hi {
+			continue
+		}
+		uids = append(uids, lo)
+	}
+	return uids, nil
 }
 
 // Uninstall removes all WARP configuration and services.

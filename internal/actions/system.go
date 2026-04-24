@@ -32,10 +32,13 @@ func init() {
 		Inputs: []InputField{
 			{Key: "action", Label: "Action", Required: true, Options: []SelectOption{
 				{Value: "add", Label: "Add user"},
+				{Value: "bulk_add", Label: "Add multiple users (random creds)"},
 				{Value: "remove", Label: "Remove user"},
 				{Value: "list", Label: "List users"},
 			}},
 			{Key: "username", Label: "Username", DependsOn: "action", DependsOnValues: []string{"add", "remove"}},
+			{Key: "count", Label: "How many users", DependsOn: "action", DependsOnValues: []string{"bulk_add"}},
+			{Key: "prefix", Label: "Username prefix", DependsOn: "action", DependsOnValues: []string{"bulk_add"}},
 		},
 	})
 

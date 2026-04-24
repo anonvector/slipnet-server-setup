@@ -9,7 +9,7 @@ Unified tunnel manager for Linux servers. Manages DNS tunnels (DNSTT, NoizDNS, S
 - **DNS routing**: Single-tunnel or multi-tunnel mode with domain-based dispatch
 - **External routing**: Forward DNS queries for a domain to a custom port for user-managed protocols
 - **WARP integration**: Optional Cloudflare WARP outbound routing (see [dnstun-ezpz](https://github.com/aleskxyz/dnstun-ezpz) for an alternative approach)
-- **User management**: Multi-user SSH + SOCKS credentials (all users authenticate simultaneously)
+- **User management**: Multi-user SSH + SOCKS credentials (all users authenticate simultaneously), with bulk creation of up to 500 users per call
 - **Live dashboard**: Real-time TUI with CPU, RAM, traffic sparklines, per-protocol connection stats, and tunnel status
 - **Diagnostics**: Built-in health checks for services, ports, keys, DNS resolution, and boot persistence
 - **Interactive TUI + CLI**: Menu-driven setup or scriptable subcommands
@@ -77,6 +77,10 @@ slipgate uninstall              # Remove all services, configs, and binaries
 slipgate update                 # Self-update and restart all services
 slipgate restart                # Restart all services (DNS router, tunnels, SOCKS)
 slipgate users                  # Manage SSH/SOCKS users and view configs
+slipgate users add              # Add a single user
+slipgate users bulk_add         # Add multiple users in one batch (random creds, up to 500)
+slipgate users remove           # Remove a user
+slipgate users list             # List users and their per-tunnel configs
 slipgate stats                  # Live dashboard (CPU, RAM, traffic, connections, tunnels)
 slipgate diag                   # Run diagnostics (services, ports, keys, DNS, boot status)
 
@@ -207,6 +211,11 @@ sudo slipgate tunnel status --tag mydnstt
 
 # Share tunnel config as slipnet:// URI
 sudo slipgate tunnel share mydnstt
+
+# Bulk-add SSH/SOCKS users (random passwords, up to 500 per call)
+sudo slipgate users bulk_add --count=50 --prefix=user
+# Creates user001..user050 with random passwords. A single SOCKS reload
+# and WARP rule sync runs for the whole batch.
 ```
 
 ## Architecture
@@ -318,6 +327,10 @@ sudo slipgate tunnel share mytunnel
 ```
 
 This outputs a `slipnet://` URI that can be scanned or imported into the SlipNet Android app. For DNSTT tunnels, you'll be asked to choose between a DNSTT or NoizDNS client profile — both connect to the same server, but NoizDNS profiles enable DPI evasion on the client side.
+
+### User Model
+
+Users are **global**, not scoped to specific tunnels or transports. `slipgate users add` only asks for a username and password — the protocol is a property of the tunnel, chosen at `tunnel add` time. Every user can authenticate against every tunnel using the same credentials, and `slipgate users list` prints one config block per (user × tunnel) pair. The client picks which tunnel to use by importing the matching `slipnet://` URI.
 
 ## File Locations
 
