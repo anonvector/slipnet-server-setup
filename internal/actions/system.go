@@ -55,6 +55,15 @@ func init() {
 	})
 
 	Register(&Action{
+		ID:       SystemMTU,
+		Name:     "Set MTU (DNSTT/NoizDNS/VayDNS)",
+		Category: "system",
+		Inputs: []InputField{
+			{Key: "mtu", Label: "MTU"},
+		},
+	})
+
+	Register(&Action{
 		ID:       QuickWizard,
 		Name:     "Quick Wizard",
 		Category: "system",

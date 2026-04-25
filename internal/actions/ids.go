@@ -25,6 +25,7 @@ const (
 	SystemUsers     = "system.users"
 	SystemStats     = "system.stats"
 	SystemDiag      = "system.diag"
+	SystemMTU       = "system.mtu"
 	QuickWizard     = "system.wizard"
 
 	// WARP actions

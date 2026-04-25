@@ -43,6 +43,7 @@ func init() {
 	register(actions.SystemUsers, handleSystemUsers)
 	register(actions.SystemStats, handleSystemStats)
 	register(actions.SystemDiag, handleSystemDiag)
+	register(actions.SystemMTU, handleSystemMTU)
 	register(actions.WarpToggle, handleWarp)
 	register(actions.ConfigExport, handleConfigExport)
 	register(actions.ConfigImport, handleConfigImport)

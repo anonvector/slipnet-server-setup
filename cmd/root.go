@@ -88,6 +88,7 @@ func registerActionCommands() {
 		actions.SystemUsers: "users",
 		actions.SystemStats: "stats",
 		actions.SystemDiag:  "diag",
+		actions.SystemMTU:   "mtu",
 	}
 
 	for id, use := range systemActions {

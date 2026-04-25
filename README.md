@@ -83,6 +83,7 @@ slipgate users remove           # Remove a user
 slipgate users list             # List users and their per-tunnel configs
 slipgate stats                  # Live dashboard (CPU, RAM, traffic, connections, tunnels)
 slipgate diag                   # Run diagnostics (services, ports, keys, DNS, boot status)
+slipgate mtu [value]            # Set MTU for all DNSTT/NoizDNS/VayDNS tunnels at once
 
 # Tunnel management
 slipgate tunnel add             # Add tunnel(s) — supports multi-select and "both" backend
@@ -196,6 +197,9 @@ sudo slipgate tunnel edit --tag mydnstt --new-tag my-tunnel
 
 # Change MTU on a DNSTT tunnel
 sudo slipgate tunnel edit --tag mydnstt --mtu 1232
+
+# Set MTU for all DNSTT/NoizDNS/VayDNS tunnels at once (rewrites and restarts each service)
+sudo slipgate mtu 1200
 
 # Tune VayDNS parameters
 sudo slipgate tunnel edit --tag myvaydns \
