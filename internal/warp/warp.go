@@ -127,7 +127,14 @@ func Enable() error {
 	if err := run("systemctl", "enable", ServiceName+".service"); err != nil {
 		return err
 	}
-	return run("systemctl", "start", ServiceName+".service")
+	if err := run("systemctl", "start", ServiceName+".service"); err != nil {
+		return err
+	}
+	// Backfill the public-addr rules in case wg-quick's PostUp swallowed an
+	// error (PostUp lines are `|| true` to keep WARP up even if rule install
+	// fails). Idempotent — no-op if PostUp already added them.
+	ensurePublicAddrRules()
+	return nil
 }
 
 // Disable stops the WARP WireGuard interface.
@@ -412,12 +419,14 @@ func generateWgConf(cfg *config.Config) error {
 
 	// "from <public-ip> lookup main" overrides the per-UID WARP rule for
 	// reply traffic on accepted inbound connections — see PublicAddrRulePref.
-	// Best-effort: skip silently if detection fails (rare on cloud hosts;
-	// would require no default route).
+	// `|| true` keeps a failed rule add (already exists, kernel objection,
+	// odd address format) from aborting `wg-quick up` and breaking WARP
+	// entirely — the rule is also backfilled live by ensurePublicAddrRules
+	// so a silent PostUp failure is recoverable.
 	for _, e := range detectPublicAddrs() {
-		postUp = append(postUp, fmt.Sprintf("ip %s rule add from %s lookup main pref %d",
+		postUp = append(postUp, fmt.Sprintf("ip %s rule add from %s lookup main pref %d || true",
 			e.family, e.addr, PublicAddrRulePref))
-		postDown = append(postDown, fmt.Sprintf("ip %s rule del from %s lookup main pref %d",
+		postDown = append(postDown, fmt.Sprintf("ip %s rule del from %s lookup main pref %d || true",
 			e.family, e.addr, PublicAddrRulePref))
 	}
 
